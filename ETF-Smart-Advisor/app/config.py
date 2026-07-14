@@ -13,6 +13,10 @@ for d in [DATA_DIR, MODELS_DIR, CACHE_DIR]:
 # AMD ROCm设备配置
 DEVICE = "cuda" if os.environ.get("ROCM_VISIBLE_DEVICES") else "cpu"
 
+VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
+VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://localhost:8000/v1")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3-30B-A3B")
+
 # LLM配置
 LLM_CONFIG = {
     "model_name": "Qwen/Qwen3-30B-A3B",
@@ -20,11 +24,47 @@ LLM_CONFIG = {
     "api_key": "abc-123",
 }
 
+
+
+# RAG 配置
+RAG_CONFIG = {
+    "collection_name": "etf_knowledge",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "chunk_size": 512,
+    "chunk_overlap": 50,
+    "top_k": 5,
+}
+
+# 记忆配置
+MEMORY_CONFIG = {
+    "enabled": True,
+    "max_history": 10,
+    "memory_path": str(DATA_DIR / "memory.json"),
+}
+
+# 任务规划配置
+PLANNER_CONFIG = {
+    "enabled": True,
+    "max_steps": 5,
+}
+
+LORA_CONFIG = {
+    "enabled": True,
+    "model_path": MODELS_DIR / "lora_etf_advisor",
+    "r": 8,
+    "lora_alpha": 16,
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+    "lora_dropout": 0.05,
+    "bias": "none",
+    "task_type": "CAUSAL_LM",
+}
+
 # 预测配置
 PREDICT_CONFIG = {
     "seq_length": 60,
     "pred_length": 20,
     "model_path": MODELS_DIR / "etf_predictor.pt",
+    "lora_path": LORA_CONFIG["model_path"],
 }
 
 # Agent系统提示
@@ -43,6 +83,21 @@ AGENT_SYSTEM_PROMPT = """你是ETF-Smart Advisor，专业的ETF投资顾问。
 - 观望：方向不明，等待机会
 
 务必提醒：投资有风险，决策需谨慎。
+"""
+
+# 扩展 Agent 系统提示词（追加到现有提示词后面）
+AGENT_SYSTEM_PROMPT_EXTENDED = """
+你具备以下工具能力：
+1. get_quote - 获取ETF实时行情
+2. get_history - 获取ETF历史数据
+3. analyze_technical - 技术指标分析
+4. predict_price - 未来20周期价格预测
+5. get_recommendation - 投资建议
+6. search_knowledge - 知识库检索
+7. generate_report - 生成完整分析报告
+8. compare_etfs - 对比多个ETF
+
+对于复杂任务，请自动分解为多个步骤并依次执行。
 """
 
 # 默认ETF池

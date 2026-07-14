@@ -68,3 +68,7 @@ class ETFDataFetcher:
             pass
         
         return pd.DataFrame()
+    def get_etf_list(self) -> List[str]:
+        """获取默认ETF列表"""
+        from .config import DEFAULT_ETF_POOL
+        return DEFAULT_ETF_POOL

@@ -1,23 +1,112 @@
+import json
+import hashlib
+from collections import defaultdict
+from datetime import datetime
+import logging
+from pathlib import Path
+
 from pydantic_ai import Agent, Tool
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 
 from .gpu_optimizer import ROCmGPUOptimizer
 from .stability_manager import StabilityManager
 from .feedback_learning import FeedbackLearning
 from .lightweight_adapter import LightweightAdapter
 
-from .config import LLM_CONFIG, AGENT_SYSTEM_PROMPT, DEFAULT_ETF_POOL
+from .config import LLM_CONFIG, AGENT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT_EXTENDED, DEFAULT_ETF_POOL, RAG_CONFIG, MEMORY_CONFIG,MODELS_DIR
 from .data_fetcher import ETFDataFetcher
 from .advisor import InvestmentAdvisor
 from .predictor import ETFPricePredictor
 
+logger = logging.getLogger(__name__)
 
+class MemoryManager:
+    """本地多轮记忆管理（集成到 Agent 中）"""
+    
+    def __init__(self, memory_path: str = None):
+        if memory_path is None:
+            memory_path = MEMORY_CONFIG.get("memory_path", "data/memory.json")
+        self.memory_path = memory_path
+        self.memories = defaultdict(list)
+        self._load_memories()
+    
+    def _load_memories(self):
+        try:
+            with open(self.memory_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                self.memories.update(data)
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+    
+    def _save_memories(self):
+        try:
+            with open(self.memory_path, 'w', encoding='utf-8') as f:
+                json.dump(dict(self.memories), f, ensure_ascii=False, indent=2)
+        except:
+            pass
+    
+    def add(self, session_id: str, query: str, response: str):
+        memory = {
+            "timestamp": datetime.now().isoformat(),
+            "query": query,
+            "response": response[:500],
+            "hash": hashlib.md5(query.encode()).hexdigest()
+        }
+        self.memories[session_id].append(memory)
+        self._save_memories()
+    
+    def get_context(self, session_id: str, limit: int = None) -> str:
+        if limit is None:
+            limit = MEMORY_CONFIG.get("max_history", 10)
+        memories = self.memories.get(session_id, [])[-limit:]
+        if not memories:
+            return ""
+        context = ""
+        for m in memories:
+            context += f"用户: {m['query']}\n助手: {m['response']}\n"
+        return context
+
+
+
+class TaskPlanner:
+    """多步骤任务规划器（集成到 Agent 中）"""
+    
+    def __init__(self):
+        self.step_templates = {
+            "quick": [
+                {"name": "get_quote", "params": {"symbol": "{symbol}"}, "desc": "获取实时行情"},
+                {"name": "get_recommendation", "params": {"symbol": "{symbol}"}, "desc": "获取投资建议"},
+            ],
+            "full": [
+                {"name": "get_quote", "params": {"symbol": "{symbol}"}, "desc": "获取实时行情"},
+                {"name": "get_history", "params": {"symbol": "{symbol}", "period": "6mo"}, "desc": "获取历史数据"},
+                {"name": "analyze_technical", "params": {"symbol": "{symbol}"}, "desc": "技术分析"},
+                {"name": "predict_price", "params": {"symbol": "{symbol}"}, "desc": "价格预测"},
+                {"name": "get_recommendation", "params": {"symbol": "{symbol}"}, "desc": "投资建议"},
+                {"name": "generate_report", "params": {"symbol": "{symbol}"}, "desc": "生成报告"},
+            ],
+        }
+    
+    def plan(self, symbol: str, depth: str = "full") -> List[Dict]:
+        steps = self.step_templates.get(depth, self.step_templates["full"])
+        result = []
+        for step in steps:
+            params = {}
+            for k, v in step["params"].items():
+                if isinstance(v, str):
+                    params[k] = v.format(symbol=symbol)
+                else:
+                    params[k] = v
+            result.append({"name": step["name"], "params": params, "desc": step["desc"]})
+        return result
+    
 class ETFAdvisorAgent:
     """ETF智能投顾Agent"""
     
     def __init__(self):
+        self.logger = logger
         # 初始化 GPU 优化器
         self.gpu_optimizer = ROCmGPUOptimizer()
         
@@ -46,13 +135,25 @@ class ETFAdvisorAgent:
         self.advisor = InvestmentAdvisor()
         self.predictor = ETFPricePredictor()
         
+        lora_path = MODELS_DIR / "lora_etf_advisor"
+        if lora_path.exists():
+            try:
+                self.predictor.load_lora_adapter(str(lora_path))
+                self.logger.info(f"✅ LoRA 适配器已加载: {lora_path}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ LoRA 加载失败: {e}")
+                
         if hasattr(self.predictor, 'model'):
             self.predictor.model = self.gpu_optimizer.optimize_model(self.predictor.model )
+
+        self.memory = MemoryManager() if MEMORY_CONFIG.get("enabled", True) else None
+        self.planner = TaskPlanner()
+        full_system_prompt = AGENT_SYSTEM_PROMPT + "\n" + AGENT_SYSTEM_PROMPT_EXTENDED
 
         # 创建Agent
         self.agent = Agent(
             model=model,
-            system_prompt=AGENT_SYSTEM_PROMPT,
+            system_prompt=full_system_prompt,
             tools=self._get_tools(),
         )
         
@@ -66,8 +167,183 @@ class ETFAdvisorAgent:
             self._compare_etfs,
             self._record_feedback,  
             self._get_optimization_status,  
+            self._get_history,
+            self._analyze_technical,
+            self._search_knowledge,
+            self._generate_report,
+            self._analyze_complete,
         ]
         
+    @Tool
+    async def _get_history(self, symbol: str, period: str = "6mo") -> str:
+        """获取ETF历史数据
+        
+        Args:
+            symbol: ETF代码
+            period: 周期 (1mo, 3mo, 6mo, 1y, 2y)
+        """
+        df = self.fetcher.get_history(symbol, period)
+        if df.empty:
+            return f"无法获取 {symbol} 的历史数据"
+        
+        return (
+            f"📈 {symbol} 历史数据 ({period})\n"
+            f"交易日: {len(df)} 天\n"
+            f"最新价: {df['Close'].iloc[-1]:.3f}\n"
+            f"最高价: {df['High'].max():.3f}\n"
+            f"最低价: {df['Low'].min():.3f}\n"
+            f"均价: {df['Close'].mean():.3f}"
+        )
+    
+    @Tool
+    async def _analyze_technical(self, symbol: str) -> str:
+        """完整技术分析
+        
+        Args:
+            symbol: ETF代码
+        """
+        df = self.fetcher.get_history(symbol, "6mo")
+        if df.empty:
+            return f"无法获取 {symbol} 的数据"
+        
+        advice = self.advisor.get_recommendation(symbol, df)
+        tech = advice['technical']
+        
+        return (
+            f"📊 {symbol} 技术分析\n"
+            f"{'='*40}\n"
+            f"当前价格: {tech['price']:.3f}\n"
+            f"趋势: {tech['trend']}\n"
+            f"RSI: {tech['rsi']:.1f}\n"
+            f"MACD: {tech['macd']:.4f}\n"
+            f"MACD信号: {tech['macd_signal']:.4f}\n"
+            f"MACD柱: {tech['macd_hist']:.4f}\n"
+            f"MA5: {tech['ma5']:.3f}\n"
+            f"MA20: {tech['ma20']:.3f}\n"
+            f"MA60: {tech['ma60']:.3f}\n"
+            f"布林上轨: {tech['bb_upper']:.3f}\n"
+            f"布林中轨: {tech['bb_middle']:.3f}\n"
+            f"布林下轨: {tech['bb_lower']:.3f}\n"
+        )
+    
+    @Tool
+    async def _search_knowledge(self, query: str) -> str:
+        """搜索ETF知识库
+        
+        Args:
+            query: 搜索问题
+        """
+        # 模拟RAG检索（实际可集成ChromaDB）
+        knowledge_base = {
+            "ETF": "ETF（交易型开放式指数基金）是一种在交易所上市交易的基金，可以像股票一样买卖。",
+            "网格交易": "网格交易是一种在设定的价格区间内，通过分批买入和卖出获取收益的策略。",
+            "定投": "定期定额投资是一种长期投资策略，通过固定时间投入固定金额来平均成本。",
+            "沪深300": "沪深300指数由沪深两市规模最大、流动性最好的300只股票组成。",
+        }
+        
+        results = []
+        for key, value in knowledge_base.items():
+            if key in query or any(k in query for k in key):
+                results.append(value)
+        
+        if not results:
+            return "未找到相关知识"
+        
+        return f"📚 知识检索结果\n{'='*40}\n\n" + "\n".join(results[:3])
+    
+    @Tool
+    async def _generate_report(self, symbol: str) -> str:
+        """生成完整分析报告
+        
+        Args:
+            symbol: ETF代码
+        """
+        # 获取数据
+        df = self.fetcher.get_history(symbol, "1y")
+        if df.empty:
+            return f"无法获取 {symbol} 的数据"
+        
+        quote = self.fetcher.get_etf_quote(symbol)
+        advice = self.advisor.get_recommendation(symbol, df)
+        pred = self.predictor.predict(df)
+        
+        report = (
+            f"📊 {symbol} 完整分析报告\n"
+            f"{'='*50}\n\n"
+            f"📈 行情信息\n"
+            f"  名称: {quote['name'] if quote else symbol}\n"
+            f"  价格: {quote['price']:.3f}\n"
+            f"  涨跌幅: {quote['change']:+.2f}%\n\n"
+            f"📊 技术指标\n"
+            f"  趋势: {advice['technical']['trend']}\n"
+            f"  RSI: {advice['technical']['rsi']:.1f}\n"
+            f"  MACD柱: {advice['technical']['macd_hist']:.4f}\n\n"
+            f"🎯 投资建议\n"
+            f"  建议: {advice['signal']}\n"
+            f"  评分: {advice['score']:.1f}/8\n"
+            f"  风险: {advice['risk_level']}\n\n"
+            f"🔮 价格预测\n"
+            f"  预测变化: {pred.get('predicted_change', 0):.2%}\n"
+            f"  目标价: {advice.get('target_price', 0):.3f}\n\n"
+            f"⚠️ 风险提示: 投资有风险，决策需谨慎。"
+        )
+        return report
+    
+    @Tool
+    async def _analyze_complete(self, symbol: str) -> str:
+        """多步骤完整分析（任务规划与执行）
+        
+        Args:
+            symbol: ETF代码
+        """
+        # 1. 规划步骤
+        steps = self.planner.plan(symbol, "full")
+        
+        results = []
+        for step in steps:
+            # 执行每个步骤
+            if step["name"] == "get_quote":
+                result = await self._get_quote(symbol)
+            elif step["name"] == "get_history":
+                result = await self._get_history(symbol, "6mo")
+            elif step["name"] == "analyze_technical":
+                result = await self._analyze_technical(symbol)
+            elif step["name"] == "predict_price":
+                result = await self._get_prediction(symbol)
+            elif step["name"] == "get_recommendation":
+                result = await self._get_recommendation(symbol)
+            elif step["name"] == "generate_report":
+                result = await self._generate_report(symbol)
+            else:
+                result = f"未知步骤: {step['name']}"
+            
+            results.append(f"**{step['desc']}**\n{result}")
+        
+        # 2. 生成综合报告
+        report = (
+            f"📊 {symbol} 综合分析报告\n"
+            f"{'='*60}\n\n"
+        )
+        
+        # 提取关键信息
+        df = self.fetcher.get_history(symbol, "6mo")
+        if not df.empty:
+            advice = self.advisor.get_recommendation(symbol, df)
+            quote = self.fetcher.get_etf_quote(symbol)
+            
+            report += f"📈 当前行情: {quote['price']:.3f} ({quote['change']:+.2f}%)\n"
+            report += f"🎯 投资建议: {advice['signal']} (评分: {advice['score']:.1f}/8)\n"
+            report += f"📊 趋势: {advice['technical']['trend']}\n"
+            report += f"🛡️ 风险等级: {advice['risk_level']}\n\n"
+        
+        # 添加分步详情
+        report += "📋 分析详情\n" + "="*40 + "\n"
+        report += "\n\n".join(results)
+        
+        report += f"\n\n⚠️ 风险提示: 投资有风险，决策需谨慎。"
+        return report
+    
+    
     @Tool
     async def _record_feedback(self, symbol: str, recommendation: str, 
                                actual_result: str, rating: int) -> str:
@@ -108,7 +384,7 @@ class ETFAdvisorAgent:
             f"  - 平均评分: {feedback_report.get('avg_rating', 0):.1f}/5"
         )
     
-    async def chat(self, message: str, symbol: str = None) -> Dict[str, Any]:
+    async def chat(self, message: str, symbol: str = None, session_id: str = None) -> Dict[str, Any]:
         """处理用户消息 - 优化版"""
         # 检查资源状态
         resource_status = self.lightweight_adapter.get_resource_report()
@@ -118,11 +394,23 @@ class ETFAdvisorAgent:
                 "success": False
             }
         
+        context = ""
+        if self.memory and session_id:
+            context = self.memory.get_context(session_id)
+        
+        # 构建完整消息
+        full_message = message
+        if context:
+            full_message = f"历史上下文:\n{context}\n\n当前问题:\n{message}"
+ 
         # 使用 GPU 优化推理
         try:
             result = await self.agent.run(message)
             response = result.data
             
+            if self.memory and session_id:
+                self.memory.add(session_id, message, response)
+                
             # 如果有推荐，应用反馈学习优化
             if symbol and "recommendation" in str(response).lower():
                 # 提取推荐内容进行优化
@@ -130,7 +418,8 @@ class ETFAdvisorAgent:
             
             return {
                 "response": response,
-                "success": True
+                "success": True,
+                 "session_id": session_id,
             }
         except Exception as e:
             return {

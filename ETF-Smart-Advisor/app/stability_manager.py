@@ -63,7 +63,7 @@ class StabilityManager:
         self.is_running = True
         thread = threading.Thread(target=self._monitor_loop, daemon=True)
         thread.start()
-        logger.info("✅ 稳定性监控已启动")
+        logger.info("稳定性监控已启动")
     
     def _monitor_loop(self):
         """监控循环"""
@@ -93,36 +93,36 @@ class StabilityManager:
                     service["status"].status = "unhealthy"
                     self._try_recover(name, service)
         except Exception as e:
-            logger.error(f"❌ 检查服务 {name} 失败: {e}")
+            logger.error(f"检查服务 {name} 失败: {e}")
             service["status"].error_count += 1
     
     def _try_recover(self, name: str, service: Dict):
         """尝试恢复服务"""
         if service["restart_count"] >= self.max_restarts:
-            logger.error(f"❌ 服务 {name} 重启次数已达上限")
+            logger.error(f"服务 {name} 重启次数已达上限")
             return
         
         if service["recover"]:
-            logger.warning(f"🔄 尝试恢复服务: {name}")
+            logger.warning(f"尝试恢复服务: {name}")
             try:
                 service["recover"]()
                 service["restart_count"] += 1
                 time.sleep(service["recover_delay"])
-                logger.info(f"✅ 服务 {name} 已恢复")
+                logger.info(f"服务 {name} 已恢复")
             except Exception as e:
-                logger.error(f"❌ 恢复服务 {name} 失败: {e}")
+                logger.error(f"恢复服务 {name} 失败: {e}")
     
     def _check_resources(self):
         """检查系统资源"""
         # CPU 使用率
         cpu_percent = psutil.cpu_percent()
         if cpu_percent > self.resource_thresholds["cpu"]:
-            logger.warning(f"⚠️ CPU 使用率高: {cpu_percent}%")
+            logger.warning(f"CPU 使用率高: {cpu_percent}%")
         
         # 内存使用率
         memory = psutil.virtual_memory()
         if memory.percent > self.resource_thresholds["memory"]:
-            logger.warning(f"⚠️ 内存使用率高: {memory.percent}%")
+            logger.warning(f"内存使用率高: {memory.percent}%")
         
         # GPU 使用率（如果有）
         try:
@@ -131,7 +131,7 @@ class StabilityManager:
             if gpus:
                 for gpu in gpus:
                     if gpu.load * 100 > self.resource_thresholds["gpu"]:
-                        logger.warning(f"⚠️ GPU 使用率高: {gpu.load * 100:.1f}%")
+                        logger.warning(f"GPU 使用率高: {gpu.load * 100:.1f}%")
         except:
             pass
     
@@ -160,4 +160,4 @@ class StabilityManager:
     def stop(self):
         """停止稳定性监控"""
         self.is_running = False
-        logger.info("⏹️ 稳定性监控已停止")
+        logger.info("稳定性监控已停止")

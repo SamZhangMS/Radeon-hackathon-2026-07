@@ -2,10 +2,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pandas as pd
+from pathlib import Path
+
 from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
-from .config import DEVICE, PREDICT_CONFIG
-
+from .config import DEVICE, PREDICT_CONFIG, MODELS_DIR, LLM_CONFIG 
+from .lora_finetuner import ETFAdvisorLoRATuner
 
 class TimeSeriesTransformer(nn.Module):
     """时间序列预测Transformer模型"""
@@ -92,7 +94,12 @@ class PositionalEncoding(nn.Module):
 class ETFPricePredictor:
     """ETF价格预测器"""
     
-    def __init__(self):
+    def __init__(self, base_model_name: Optional[str] = None):
+        # 
+        if base_model_name is None:
+            base_model_name = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B")
+        self.base_model_name = base_model_name
+
         self.model = TimeSeriesTransformer(
             seq_length=PREDICT_CONFIG["seq_length"],
             pred_length=PREDICT_CONFIG["pred_length"]
@@ -101,6 +108,7 @@ class ETFPricePredictor:
         self.model_path = PREDICT_CONFIG["model_path"]
         self.seq_length = PREDICT_CONFIG["seq_length"]
         self.pred_length = PREDICT_CONFIG["pred_length"]
+        self.lora_path = PREDICT_CONFIG.get("lora_path", MODELS_DIR / "lora_etf_advisor")
         self.norm_params = {}
         self.is_trained = False
         
@@ -108,6 +116,9 @@ class ETFPricePredictor:
         if self.model_path.exists():
             self.load_model()
     
+        if self.lora_path.exists():
+            self.load_lora_adapter(str(self.lora_path))
+            
     def load_model(self):
         """加载模型"""
         try:
@@ -115,10 +126,46 @@ class ETFPricePredictor:
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.norm_params = checkpoint.get('norm_params', {})
             self.is_trained = True
-            print("✅ 预测模型加载成功")
+            print("预测模型加载成功")
         except Exception as e:
             print(f"⚠️ 模型加载失败: {e}")
     
+    def load_lora_adapter(self, lora_path: str):
+        """加载微调后的 LoRA 适配器"""
+        try:
+            from peft import PeftModel
+            
+            if self.model is not None:
+                # 
+                if not hasattr(self.model, 'base_model'):
+                    self.model = PeftModel.from_pretrained(self.model, lora_path)
+                    print(f"LoRA 适配器已加载: {lora_path}")
+                else:
+                    print(f"ℹ模型已加载 LoRA，跳过重复加载")
+        except ImportError as e:
+            print(f"⚠️ peft 未安装，跳过 LoRA 加载: {e}")
+        except Exception as e:
+            print(f"⚠️ LoRA 加载失败: {e}")
+
+    def fine_tune(self, train_data: pd.DataFrame, output_dir: str = "./lora_etf_advisor"):
+        """使用 LoRA 微调预测模型"""
+        try:
+            # 使用 self.base_model_name（从 LLM_CONFIG 获取）
+            tuner = ETFAdvisorLoRATuner(self.base_model_name)
+            tuner.load_model_and_tokenizer()
+            tuner.train_lora(train_data, output_dir)
+            
+            # 微调完成后自动加载
+            self.lora_path = Path(output_dir)
+            if self.lora_path.exists():
+                self.load_lora_adapter(str(self.lora_path))
+                
+        except ImportError as e:
+            print(f"LoRA 微调失败，请安装 peft: {e}")
+        except Exception as e:
+            print(f"微调过程出错: {e}")
+            
+        
     def save_model(self):
         """保存模型"""
         checkpoint = {
@@ -126,7 +173,7 @@ class ETFPricePredictor:
             'norm_params': self.norm_params,
         }
         torch.save(checkpoint, self.model_path)
-        print(f"✅ 模型已保存: {self.model_path}")
+        print(f"模型已保存: {self.model_path}")
     
     def prepare_data(self, df: pd.DataFrame) -> torch.Tensor:
         """准备输入数据"""

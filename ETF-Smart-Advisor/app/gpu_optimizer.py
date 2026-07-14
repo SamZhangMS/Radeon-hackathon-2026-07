@@ -86,6 +86,22 @@ class ROCmGPUOptimizer:
             logger.warning("⚠️ Flash Attention 未安装，使用标准 attention")
             return False
     
+    def get_detailed_stats(self) -> Dict[str, Any]:
+        """获取详细性能统计（供 benchmark.py 使用）"""
+        stats = self.get_performance_stats()
+        
+        # ✅ 添加更多统计信息
+        if torch.cuda.is_available():
+            stats.update({
+                "gpu_name": torch.cuda.get_device_name(0),
+                "gpu_memory_total": torch.cuda.get_device_properties(0).total_memory / 1024**3,
+                "gpu_memory_free": (torch.cuda.get_device_properties(0).total_memory - 
+                                   torch.cuda.memory_allocated()) / 1024**3,
+                "gpu_utilization": torch.cuda.utilization() if hasattr(torch.cuda, 'utilization') else 0,
+            })
+        
+        return stats
+    
     def optimize_model(self, model: nn.Module) -> nn.Module:
         """优化模型推理速度"""
         logger.info("🔧 开始优化模型...")

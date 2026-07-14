@@ -2,15 +2,18 @@
 torch>=2.5.0+rocm5.7
 transformers>=4.48.0
 vllm>=0.15.0
+accelerate>=0.25.0
 
 # AI Agent框架
 pydantic-ai>=0.0.30
 openai>=1.0.0
+pydantic>=2.0.0
 
 # Web框架
 fastapi>=0.100.0
 uvicorn>=0.23.0
-pydantic>=2.0.0
+
+gradio>=4.0.0
 
 # 金融数据
 pandas>=2.0.0
@@ -26,11 +29,10 @@ matplotlib>=3.7.0
 # 工具
 python-multipart>=0.0.6
 aiofiles>=23.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
 
-# AMD ROCm GPU 支持
-torch>=2.5.0+rocm5.7
-transformers>=4.48.0
-vllm>=0.15.0
+
 
 # GPU 优化
 flash-attn>=2.5.0
@@ -40,3 +42,8 @@ einops>=0.7.0
 # 监控
 psutil>=5.9.0
 GPUtil>=1.4.0
+
+# RAG 向量检索
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
