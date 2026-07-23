@@ -1,5 +1,5 @@
 # AMD ROCm GPU支持
-torch>=2.5.0+rocm5.7
+torch==2.5.0+rocm5.7
 transformers>=4.48.0
 vllm>=0.15.0
 accelerate>=0.25.0
@@ -47,3 +47,7 @@ GPUtil>=1.4.0
 chromadb>=0.4.0
 sentence-transformers>=2.2.0
 faiss-cpu>=1.7.4
+
+peft>=0.10.0
+trl>=0.8.0
+datasets>=2.14.0

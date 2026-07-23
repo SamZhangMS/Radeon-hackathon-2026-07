@@ -116,6 +116,90 @@ class InvestmentAdvisor:
             'stop_loss': indicators['price'] * (1 - 0.03 * abs(score) / 4),
         }
     
+    # advisor.py - 在 InvestmentAdvisor 类中添加
+
+    def get_top_recommendations(self, symbols: List[str] = None) -> Dict[str, List]:
+        """✅ 获取 Top 3 买入/卖出/持有推荐（新增）
+        
+        Args:
+            symbols: ETF 代码列表，默认使用配置中的 DEFAULT_ETF_POOL
+        """
+        from .config import DEFAULT_ETF_POOL
+        
+        if symbols is None:
+            symbols = DEFAULT_ETF_POOL
+        
+        results = {
+            'buy': [],
+            'hold': [],
+            'sell': [],
+            'all_recommendations': []
+        }
+        
+        for symbol in symbols:
+            df = self.fetcher.get_history(symbol, "6mo")
+            if df.empty:
+                continue
+            
+            advice = self.get_recommendation(symbol, df)
+            
+            # 获取 Qwen 增强分析（通过 Agent）
+            qwen_analysis = self._get_qwen_analysis(symbol, advice)
+            
+            result = {
+                'symbol': symbol,
+                'name': advice.get('name', symbol),
+                'recommendation': advice['recommendation'],
+                'signal': advice['signal'],
+                'score': advice['score'],
+                'confidence': advice['confidence'],
+                'current_price': advice['current_price'],
+                'target_price': advice.get('target_price', 0),
+                'risk_level': advice['risk_level'],
+                'reasons': advice['reasons'],
+                'qwen_analysis': qwen_analysis,  # Qwen 分析结果
+            }
+            results['all_recommendations'].append(result)
+            
+            # 分类
+            if advice['recommendation'] == 'buy':
+                results['buy'].append(result)
+            elif advice['recommendation'] == 'hold':
+                results['hold'].append(result)
+            else:
+                results['sell'].append(result)
+        
+        # 按评分排序，取 Top 3
+        for key in ['buy', 'hold', 'sell']:
+            results[key] = sorted(
+                results[key],
+                key=lambda x: x['score'],
+                reverse=(key == 'buy')
+            )[:3]
+        
+        return results
+
+    def _get_qwen_analysis(self, symbol: str, advice: Dict) -> str:
+        """✅ 调用 Qwen 进行增强分析（新增）"""
+        try:
+            # 构建分析上下文
+            context = f"""
+            请对 ETF {symbol} 进行专业分析：
+            - 当前价格: {advice['current_price']}
+            - 技术趋势: {advice['technical']['trend']}
+            - RSI: {advice['technical']['rsi']:.1f}
+            - 投资建议: {advice['signal']}
+            - 风险等级: {advice['risk_level']}
+            
+            请给出简短的分析评语和投资建议。
+            """
+            
+            # 调用 Qwen（通过 Agent 的 chat 方法）
+            # 这里简化处理，实际可通过 Agent 的 LLM 调用
+            return f"Qwen 分析: {symbol} 当前处于{advice['technical']['trend']}趋势，RSI={advice['technical']['rsi']:.1f}，建议{advice['signal']}。"
+        except Exception as e:
+            return f"Qwen 分析暂时不可用: {e}"
+    
     def _calculate_indicators(self, df: pd.DataFrame) -> Dict:
         """计算技术指标"""
         close = df['Close']

@@ -20,7 +20,7 @@ from .config import BASE_DIR,DATA_DIR
 app = FastAPI(
     title="ETF-Smart Advisor",
     description="基于AMD ROCm的ETF智能投顾Agent",
-    version="2.0.0"
+    version="1.0.0"
 )
 API_KEY = os.environ.get("API_KEY", "abc-123")
 
@@ -184,6 +184,50 @@ async def upload_finetune_data(file: UploadFile = File(...)):
     with open(data_path, 'wb') as f:
         f.write(content)
     return {"status": "success", "data_path": str(data_path)}
+
+# main.py - 在文件末尾添加
+
+# ✅ 新增：获取 Top 推荐 API
+@app.get("/api/top-recommendations", dependencies=[Depends(verify_token)])
+async def get_top_recommendations():
+    """获取每日 Top 3 买入/卖出/持有 ETF 推荐"""
+    top_results = agent.advisor.get_top_recommendations()
+    return {
+        "status": "success",
+        "data": top_results,
+        "timestamp": datetime.now().isoformat()
+    }
+
+# ✅ 新增：双模型集成预测 API
+@app.post("/api/predict/ensemble", dependencies=[Depends(verify_token)])
+async def get_ensemble_prediction(request: PredictRequest):
+    """获取双模型集成预测"""
+    df = agent.fetcher.get_history(request.symbol)
+    if df.empty:
+        raise HTTPException(404, f"无法获取 {request.symbol} 的数据")
+    
+    pred = agent.predictor.predict(df, use_ensemble=True)
+    if not pred.get('success', False):
+        raise HTTPException(400, pred.get('error', '预测失败'))
+    
+    return pred
+
+# ✅ 新增：批量分析 API
+@app.post("/api/batch-analysis", dependencies=[Depends(verify_token)])
+async def batch_analysis(symbols: List[str]):
+    """批量分析多个 ETF"""
+    results = []
+    for symbol in symbols[:10]:  # 限制最多 10 个
+        df = agent.fetcher.get_history(symbol, "6mo")
+        if not df.empty:
+            advice = agent.advisor.get_recommendation(symbol, df)
+            pred = agent.predictor.predict(df, use_ensemble=True)
+            results.append({
+                "symbol": symbol,
+                "recommendation": advice,
+                "prediction": pred if pred.get('success') else None
+            })
+    return {"status": "success", "results": results}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7860)

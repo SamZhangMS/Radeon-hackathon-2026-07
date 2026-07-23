@@ -172,6 +172,8 @@ class ETFAdvisorAgent:
             self._search_knowledge,
             self._generate_report,
             self._analyze_complete,
+            self._get_top_recommendations,
+            self._get_ensemble_prediction,
         ]
         
     @Tool
@@ -385,7 +387,8 @@ class ETFAdvisorAgent:
         )
     
     async def chat(self, message: str, symbol: str = None, session_id: str = None) -> Dict[str, Any]:
-        """处理用户消息 - 优化版"""
+        """处理用户消息 - 增强版，自动识别意图"""
+        
         # 检查资源状态
         resource_status = self.lightweight_adapter.get_resource_report()
         if resource_status.get('cpu_percent', 0) > 80:
@@ -394,32 +397,69 @@ class ETFAdvisorAgent:
                 "success": False
             }
         
+        # ✅ 智能意图识别
+        message_lower = message.lower()
+        
+        # 检测是否请求 Top 推荐
+        if any(keyword in message_lower for keyword in ['推荐', 'top', '排名', '最好', '最佳']):
+            top_results = await self._get_top_recommendations()
+            return {
+                "response": top_results,
+                "success": True,
+                "session_id": session_id,
+                "intent": "top_recommendations"
+            }
+        
+        # 检测是否请求预测
+        if any(keyword in message_lower for keyword in ['预测', '未来', '走势', '涨跌']):
+            if symbol:
+                pred_result = await self._get_ensemble_prediction(symbol)
+                return {
+                    "response": pred_result,
+                    "success": True,
+                    "session_id": session_id,
+                    "intent": "ensemble_prediction"
+                }
+        
+        # 检测是否请求分析
+        if any(keyword in message_lower for keyword in ['分析', '评估', '怎么看', '建议']):
+            if symbol:
+                # 获取技术分析
+                tech_analysis = await self._analyze_technical(symbol)
+                # 获取预测
+                pred_result = await self._get_ensemble_prediction(symbol)
+                # 获取推荐
+                rec_result = await self._get_recommendation(symbol)
+                
+                combined = f"{tech_analysis}\n\n{pred_result}\n\n{rec_result}"
+                return {
+                    "response": combined,
+                    "success": True,
+                    "session_id": session_id,
+                    "intent": "full_analysis"
+                }
+        
+        # 原有逻辑：使用 Agent 处理
         context = ""
         if self.memory and session_id:
             context = self.memory.get_context(session_id)
         
-        # 构建完整消息
         full_message = message
         if context:
             full_message = f"历史上下文:\n{context}\n\n当前问题:\n{message}"
- 
-        # 使用 GPU 优化推理
+        
         try:
-            result = await self.agent.run(message)
+            result = await self.agent.run(full_message)
             response = result.data
             
             if self.memory and session_id:
                 self.memory.add(session_id, message, response)
-                
-            # 如果有推荐，应用反馈学习优化
-            if symbol and "recommendation" in str(response).lower():
-                # 提取推荐内容进行优化
-                pass
             
             return {
                 "response": response,
                 "success": True,
-                 "session_id": session_id,
+                "session_id": session_id,
+                "intent": "general"
             }
         except Exception as e:
             return {
@@ -594,5 +634,93 @@ class ETFAdvisorAgent:
                     report += f"{symbol}\t{quote['name'][:8]}\t{quote['price']:.3f}\t{quote['change']:+.2f}%\t{adv_emoji}\n"
                 else:
                     report += f"{symbol}\t{quote['name'][:8]}\t{quote['price']:.3f}\t{quote['change']:+.2f}%\t数据不足\n"
+        
+        return report
+    
+    @Tool
+    async def _get_top_recommendations(self) -> str:
+        """获取每日 Top 3 买入/卖出/持有 ETF 推荐
+        
+        Returns:
+            格式化的推荐列表
+        """
+        top_results = self.advisor.get_top_recommendations()
+        
+        report = "📊 今日 Top 3 ETF 推荐\n"
+        report += "="*60 + "\n\n"
+        
+        # 买入推荐
+        report += "🟢 Top 3 买入推荐\n"
+        report += "-"*40 + "\n"
+        for i, rec in enumerate(top_results['buy'], 1):
+            report += f"{i}. {rec['symbol']} ({rec['name']})\n"
+            report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
+            report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n"
+            report += f"   {rec['reasons'][0] if rec['reasons'] else ''}\n"
+            if rec.get('qwen_analysis'):
+                report += f"   🤖 Qwen: {rec['qwen_analysis'][:50]}...\n"
+            report += "\n"
+        
+        # 持有推荐
+        report += "🟡 Top 3 持有推荐\n"
+        report += "-"*40 + "\n"
+        for i, rec in enumerate(top_results['hold'], 1):
+            report += f"{i}. {rec['symbol']} ({rec['name']})\n"
+            report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
+            report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n"
+            report += "\n"
+        
+        # 卖出推荐
+        report += "🔴 Top 3 卖出推荐\n"
+        report += "-"*40 + "\n"
+        for i, rec in enumerate(top_results['sell'], 1):
+            report += f"{i}. {rec['symbol']} ({rec['name']})\n"
+            report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
+            report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n"
+            report += "\n"
+        
+        report += "⚠️ 风险提示: 投资有风险，决策需谨慎。以上推荐仅供参考。"
+        return report
+
+    # ✅ 新增：集成预测工具
+    @Tool
+    async def _get_ensemble_prediction(self, symbol: str) -> str:
+        """获取双模型集成预测（Transformer + LSTM）
+        
+        Args:
+            symbol: ETF 代码
+        """
+        df = self.fetcher.get_history(symbol)
+        if df.empty:
+            return f"无法获取 {symbol} 的数据"
+        
+        pred = self.predictor.predict(df, use_ensemble=True)
+        if not pred.get('success', False):
+            return f"预测失败: {pred.get('error', '未知错误')}"
+        
+        report = f"🔮 {symbol} 双模型集成预测\n"
+        report += "="*60 + "\n\n"
+        
+        report += f"📊 集成预测 (Transformer {pred.get('ensemble_weight', 0.6)*100:.0f}% + LSTM {(1-pred.get('ensemble_weight', 0.6))*100:.0f}%)\n"
+        report += f"   预测周期: {len(pred['close'])} 个交易日\n"
+        report += f"   预测变化: {pred['predicted_change']:.2%}\n"
+        report += f"   置信区间: ±{pred['confidence']:.2%}\n\n"
+        
+        # 各模型独立结果
+        if 'transformer_prediction' in pred:
+            report += "📈 Transformer 模型:\n"
+            report += f"   预测变化: {pred['transformer_prediction']['change']:.2%}\n"
+        
+        if 'lstm_prediction' in pred:
+            report += "📉 LSTM 模型:\n"
+            report += f"   预测变化: {pred['lstm_prediction']['change']:.2%}\n"
+        
+        report += "\n📅 预测价格表:\n"
+        report += "日期\t\t开盘\t最高\t最低\t收盘\n"
+        for i in range(min(10, len(pred['dates']))):
+            report += f"{pred['dates'][i]}\t{pred['open'][i]:.3f}\t{pred['high'][i]:.3f}\t{pred['low'][i]:.3f}\t{pred['close'][i]:.3f}\n"
+        
+        if len(pred['dates']) > 10:
+            report += f"... 还有 {len(pred['dates']) - 10} 个周期\n"
         
         return report

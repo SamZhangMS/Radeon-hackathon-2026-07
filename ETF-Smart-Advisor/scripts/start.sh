@@ -3,16 +3,16 @@
 
 set -e
 
-echo "启动 ETF-Smart Advisor (优化版)"
+echo "启动 ETF-Smart Advisor"
 echo "="*60
 
 # 1. 检查 ROCm 环境
 echo "检查 ROCm 环境..."
 if command -v rocm-smi &> /dev/null; then
-    echo "ROCm 检测成功"
+    echo "Detected ROCm!"
     rocm-smi --showproductname
 else
-    echo "ROCm 未检测到，使用 CPU 模式"
+    echo "Not find ROCm , use CPU mode"
 fi
 
 # 2. 检查 AMD GPU
@@ -35,6 +35,14 @@ export MKL_NUM_THREADS=1
 echo "检查显存..."
 if command -v rocm-smi &> /dev/null; then
     rocm-smi --showmeminfo vram
+fi
+# start.sh - 在启动应用前添加
+
+# 8. 预训练 LSTM 模型（如果不存在）
+echo "检查 LSTM 模型..."
+if [ ! -f /workspace/data/models/etf_predictor_lstm.pt ]; then
+    echo "LSTM 模型不存在，使用 Transformer 模型作为主模型"
+    echo "提示: 可在应用启动后通过 API 触发 LSTM 训练"
 fi
 
 # 5. 启动 vLLM (GPU优化)

@@ -105,3 +105,17 @@ DEFAULT_ETF_POOL = [
     "510050", "510300", "510500", "159919", "159915",
     "512880", "512690", "515050", "516160", "512170"
 ]
+
+# 推荐配置
+RECOMMEND_CONFIG = {
+    "top_k": 3,  # Top K 推荐数量
+    "min_data_days": 60,  # 最少数据天数
+    "score_threshold": 0.5,  # 评分阈值
+}
+
+# 集成预测配置
+ENSEMBLE_CONFIG = {
+    "transformer_weight": 0.6,  # Transformer 权重
+    "lstm_weight": 0.4,  # LSTM 权重
+    "min_confidence": 0.3,  # 最低置信度
+}
