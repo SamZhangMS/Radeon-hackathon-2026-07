@@ -26,20 +26,25 @@ fi
 
 # 3. 创建虚拟环境
 echo ""
-echo "📦 创建 Python 虚拟环境 (etfvenv)..."
-if [ -d "etfvenv" ]; then
+echo "📦 创建 Python 虚拟环境 (etfadvisorvenv)..."
+if [ -d "etfadvisorvenv" ]; then
     echo "⚠️ 虚拟环境已存在，删除旧环境..."
-    rm -rf etfvenv
+    rm -rf etfadvisorvenv
 fi
-python3 -m venv etfvenv
-source etfvenv/bin/activate
+python3 -m venv etfadvisorvenv
+source etfadvisorvenv/bin/activate
 
 # 4. 升级 pip
 echo ""
 echo "⬆️ 升级 pip..."
 pip install --upgrade pip
 
-# 5. 下载并安装 ROCm 版 PyTorch
+# 5. 安装 PyTorch 依赖
+echo ""
+echo "📦 安装 PyTorch 依赖..."
+pip install typing_extensions numpy
+
+# 6. 下载并安装 ROCm 版 PyTorch
 echo ""
 echo "📥 安装 ROCm 版 PyTorch (2.9.1+rocm7.2.1)..."
 cd /tmp
@@ -69,10 +74,9 @@ download_if_missing "$TORCHAUDIO_WHEEL"
 download_if_missing "$TRITON_WHEEL"
 
 echo "  安装 PyTorch 组件..."
-pip install --no-deps "$PYTORCH_WHEEL" "$TORCHVISION_WHEEL" "$TORCHAUDIO_WHEEL" "$TRITON_WHEEL" 2>/dev/null || \
 pip install "$PYTORCH_WHEEL" "$TORCHVISION_WHEEL" "$TORCHAUDIO_WHEEL" "$TRITON_WHEEL"
 
-# 6. 验证 PyTorch
+# 7. 验证 PyTorch
 echo ""
 echo "🔬 验证 PyTorch 安装..."
 python -c "
@@ -84,26 +88,26 @@ if torch.cuda.is_available():
     print(f'✅ 显存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB')
 "
 
-# 7. 安装 uv 和 vLLM
+# 8. 安装 uv 和 vLLM
 echo ""
 echo "📦 安装 uv 和 vLLM (ROCm 版)..."
 pip install uv
 uv pip install vllm==0.18.0+rocm700 \
     --extra-index-url https://wheels.vllm.ai/rocm/0.18.0/rocm700
 
-# 8. 安装其他依赖
+# 9. 安装其他依赖
 echo ""
 echo "📦 安装项目其他依赖..."
 cd "$PROJECT_DIR"
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 9. 创建数据目录
+# 10. 创建数据目录
 echo ""
 echo "📁 创建数据目录..."
 mkdir -p data/models data/cache
 
 # ============================================================
-# 10. 清理临时文件
+# 11. 清理临时文件
 # ============================================================
 cleanup_temp_files() {
     echo ""
@@ -155,7 +159,7 @@ else
 fi
 
 # ============================================================
-# 11. 验证安装
+# 12. 验证安装
 # ============================================================
 echo ""
 echo "=============================================="
@@ -163,7 +167,7 @@ echo "✅ 环境搭建完成!"
 echo "=============================================="
 echo ""
 echo "📊 启动服务:"
-echo "   source etfvenv/bin/activate"
+echo "   source etfadvisorvenv/bin/activate"
 echo "   PYTHONPATH=. python -m app.main"
 echo ""
 echo "🧪 验证 GPU:"
