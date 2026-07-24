@@ -101,6 +101,7 @@ echo ""
 echo "📁 创建数据目录..."
 mkdir -p data/models data/cache
 
+
 # 10. 验证安装
 echo ""
 echo "=============================================="
