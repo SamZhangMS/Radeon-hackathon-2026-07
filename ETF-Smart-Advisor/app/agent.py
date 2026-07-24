@@ -200,6 +200,8 @@ class ETFAdvisorAgent:
     
     @Tool
     async def _analyze_technical(self, symbol: str) -> str:
+        return await self._analyze_technical_impl(symbol)
+    async def _analyze_technical_impl(self, symbol: str) -> str:
         """完整技术分析
         
         Args:
@@ -491,6 +493,8 @@ class ETFAdvisorAgent:
     
     @Tool
     async def _get_recommendation(self, symbol: str) -> str:
+        return await self._get_recommendation_impl(symbol)
+    async def _get_recommendation_impl(self, symbol: str) -> str:
         """获取买入/卖出/持有建议
         
         Args:
@@ -686,6 +690,8 @@ class ETFAdvisorAgent:
     # ✅ 新增：集成预测工具
     @Tool
     async def _get_ensemble_prediction(self, symbol: str) -> str:
+        return await self._get_ensemble_prediction_impl(symbol)
+    async def _get_ensemble_prediction_impl(self, symbol: str) -> str:
         """获取双模型集成预测（Transformer + LSTM）
         
         Args:
