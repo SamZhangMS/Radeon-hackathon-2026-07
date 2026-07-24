@@ -26,13 +26,13 @@ fi
 
 # 3. 创建虚拟环境
 echo ""
-echo "📦 创建 Python 虚拟环境..."
-if [ -d "venv" ]; then
+echo "📦 创建 Python 虚拟环境 (etfvenv)..."
+if [ -d "etfvenv" ]; then
     echo "⚠️ 虚拟环境已存在，删除旧环境..."
-    rm -rf venv
+    rm -rf etfvenv
 fi
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv etfvenv
+source etfvenv/bin/activate
 
 # 4. 升级 pip
 echo ""
@@ -44,18 +44,19 @@ echo ""
 echo "📥 安装 ROCm 版 PyTorch (2.9.1+rocm7.2.1)..."
 cd /tmp
 
-# 检查 wheel 文件是否存在，不存在则下载
+# 定义 wheel 文件名
 PYTORCH_WHEEL="torch-2.9.1+rocm7.2.1.lw.gitff65f5bc-cp312-cp312-linux_x86_64.whl"
 TORCHVISION_WHEEL="torchvision-0.24.0+rocm7.2.1.gitb919bd0c-cp312-cp312-linux_x86_64.whl"
 TORCHAUDIO_WHEEL="torchaudio-2.9.0+rocm7.2.1.gite3c6ee2b-cp312-cp312-linux_x86_64.whl"
 TRITON_WHEEL="triton-3.5.1+rocm7.2.1.gita272dfa8-cp312-cp312-linux_x86_64.whl"
 
+# 下载函数
 download_if_missing() {
     local url="https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.1/$1"
     local file="$1"
     if [ ! -f "$file" ]; then
         echo "  下载 $file..."
-        wget -q "$url" -O "$file" || echo "  ⚠️ 下载失败，尝试继续..."
+        wget -q --show-progress "$url" -O "$file" || echo "  ⚠️ 下载失败，尝试继续..."
     else
         echo "  ✅ $file 已存在"
     fi
@@ -101,16 +102,72 @@ echo ""
 echo "📁 创建数据目录..."
 mkdir -p data/models data/cache
 
+# ============================================================
+# 10. 清理临时文件
+# ============================================================
+cleanup_temp_files() {
+    echo ""
+    echo "🧹 清理临时文件以节省空间..."
+    
+    # 清理 /tmp 目录下的 wheel 文件
+    local tmp_files=(
+        "/tmp/$PYTORCH_WHEEL"
+        "/tmp/$TORCHVISION_WHEEL"
+        "/tmp/$TORCHAUDIO_WHEEL"
+        "/tmp/$TRITON_WHEEL"
+    )
+    
+    local freed_space=0
+    for file in "${tmp_files[@]}"; do
+        if [ -f "$file" ]; then
+            local size=$(du -b "$file" | cut -f1)
+            freed_space=$((freed_space + size))
+            rm -f "$file"
+            echo "  已删除: $(basename "$file") ($(numfmt --to=iec $size))"
+        fi
+    done
+    
+    # 清理 pip 缓存
+    echo "  清理 pip 缓存..."
+    pip cache purge 2>/dev/null || true
+    
+    # 清理 uv 缓存
+    echo "  清理 uv 缓存..."
+    uv cache clean 2>/dev/null || true
+    
+    if [ $freed_space -gt 0 ]; then
+        echo "  ✅ 共释放空间: $(numfmt --to=iec $freed_space)"
+    else
+        echo "  ✅ 没有需要清理的临时文件"
+    fi
+}
 
-# 10. 验证安装
+echo ""
+echo "💡 是否清理下载的临时 wheel 文件？(约 2GB)"
+read -p "  输入 y 确认清理，输入 n 跳过 (默认 y): " -r CLEANUP_CHOICE
+CLEANUP_CHOICE=${CLEANUP_CHOICE:-y}
+
+if [[ "$CLEANUP_CHOICE" =~ ^[Yy]$ ]]; then
+    cleanup_temp_files
+else
+    echo "  跳过清理，wheel 文件保留在 /tmp 目录"
+    echo "  可手动运行: rm -f /tmp/torch-*.whl /tmp/triton-*.whl"
+fi
+
+# ============================================================
+# 11. 验证安装
+# ============================================================
 echo ""
 echo "=============================================="
 echo "✅ 环境搭建完成!"
 echo "=============================================="
 echo ""
 echo "📊 启动服务:"
-echo "   source venv/bin/activate"
+echo "   source etfvenv/bin/activate"
 echo "   PYTHONPATH=. python -m app.main"
 echo ""
 echo "🧪 验证 GPU:"
 echo "   python -c \"import torch; print(torch.cuda.is_available())\""
+echo ""
+echo "📁 临时文件已清理，当前磁盘空间:"
+df -h /tmp /workspace 2>/dev/null || df -h .
