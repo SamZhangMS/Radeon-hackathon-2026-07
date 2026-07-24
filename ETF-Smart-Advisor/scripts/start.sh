@@ -48,7 +48,7 @@ fi
 # 5. 启动 vLLM (GPU优化)
 echo "启动 vLLM 推理服务..."
 VLLM_USE_TRITON_FLASH_ATTN=0 \
-vllm serve Qwen/Qwen3-30B-A3B \
+vllm serve ./models/Qwen3-30B-A3B \
     --served-model-name Qwen3-30B-A3B \
     --api-key abc-123 \
     --port 8000 \
@@ -71,7 +71,7 @@ cd /workspace
 
 # 运行性能基准测试
 echo "运行性能基准测试..."
-python -m scripts.benchmark --gpu
+python -m benchmark --gpu
 
 # 启动主应用
 python -m app.main

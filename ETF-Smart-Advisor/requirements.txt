@@ -1,7 +1,7 @@
 # AMD ROCm GPU支持
-torch==2.5.0+rocm5.7
+torch
 transformers>=4.48.0
-vllm>=0.15.0
+vllm
 accelerate>=0.25.0
 
 # AI Agent框架
@@ -35,7 +35,7 @@ python-dotenv>=1.0.0
 
 
 # GPU 优化
-flash-attn>=2.5.0
+#flash-attn>=2.5.0
 xformers>=0.0.26
 einops>=0.7.0
 
