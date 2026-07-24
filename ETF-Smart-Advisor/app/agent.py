@@ -6,7 +6,8 @@ import logging
 from pathlib import Path
 
 from pydantic_ai import Agent, Tool
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
+
 from pydantic_ai.providers.openai import OpenAIProvider
 from typing import Dict, Any, List, Optional
 
@@ -125,7 +126,7 @@ class ETFAdvisorAgent:
             base_url=LLM_CONFIG["api_base"],
             api_key=LLM_CONFIG["api_key"],
         )
-        model = OpenAIModel(
+        model = OpenAIChatModel(
             LLM_CONFIG["model_name"],
             provider=provider
         )
