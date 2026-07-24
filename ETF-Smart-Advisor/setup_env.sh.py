@@ -113,7 +113,8 @@ if [ ! -d "./models/Qwen3-30B-A3B" ]; then
     echo "  Model not found, downloading (approx 60GB)..."
     mkdir -p models
     pip install modelscope
-    modelscope download --model Qwen/Qwen3-30B-A3B --local_dir ./models/Qwen3-30B-A3B
+    # modelscope download --model Qwen/Qwen3-30B-A3B --local_dir ./models/Qwen3-30B-A3B
+    modelscope download --model Qwen/Qwen3-30B-A3B-AWQ --local_dir ./models/Qwen3-30B-A3B-AWQ
 else
     echo "  ✅ Model already exists"
 fi
