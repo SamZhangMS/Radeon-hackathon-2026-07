@@ -59,7 +59,7 @@ fi
 
 # 7. Check Qwen model
 # 模型本地路径
-MODEL_PATH="./models/Qwen3-30B-A3B-GPTQ-Int4"
+MODEL_PATH="./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4"
 # 模型服务名称 (可自定义)
 MODEL_SERVED_NAME="Qwen3-30B-A3B-GPTQ-Int4"
 # ModelScope 上的模型ID
