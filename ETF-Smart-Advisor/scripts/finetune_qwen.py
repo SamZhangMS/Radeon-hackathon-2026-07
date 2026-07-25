@@ -24,7 +24,8 @@ from transformers import (
     TrainingArguments, 
     Trainer,
     DataCollatorForSeq2Seq,
-    set_seed
+    set_seed,
+    BitsAndBytesConfig
 )
 from peft import LoraConfig, TaskType, get_peft_model, PeftModel
 
@@ -202,84 +203,76 @@ def process_func(example, tokenizer, max_length: int = MAX_LENGTH):
     }
 
 
-# ============================================================
-# 加载 GPTQ 模型的辅助函数
-# ============================================================
-
-def load_gptq_model(model_path: str):
-    """加载 GPTQ 量化模型"""
-    # 尝试不同的加载方式
+def load_model_for_training(model_path: str):
+    """加载模型用于训练（支持 GPTQ 和普通模型）"""
+    
+    # 检查是否是 GPTQ 模型
+    is_gptq = False
+    config_file = Path(model_path) / "config.json"
+    if config_file.exists():
+        import json
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+            if config.get('quantization_config', {}).get('quant_method') == 'gptq':
+                is_gptq = True
+    
+    if is_gptq:
+        print("  📌 检测到 GPTQ 量化模型，尝试加载...")
+        
+        # 方法1: 尝试使用 transformers + optimum
+        try:
+            print("  尝试方式1: transformers + optimum...")
+            from optimum.gptq import GPTQConfig
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                device_map="auto",
+                dtype=torch.bfloat16,
+                trust_remote_code=True
+            )
+            print("  ✅ 使用 optimum 加载成功")
+            return model
+        except ImportError as e:
+            print(f"  ⚠️ optimum 未安装: {e}")
+        except Exception as e:
+            print(f"  ⚠️ optimum 加载失败: {e}")
+        
+        # 方法2: 使用 4-bit 量化加载
+        try:
+            print("  尝试方式2: 4-bit 量化加载...")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
+            )
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                device_map="auto",
+                trust_remote_code=True,
+                quantization_config=bnb_config
+            )
+            print("  ✅ 使用 4-bit 量化加载成功")
+            return model
+        except ImportError:
+            print("  ⚠️ bitsandbytes 未安装")
+        except Exception as e:
+            print(f"  ⚠️ 4-bit 加载失败: {e}")
+    
+    # 方法3: 尝试直接加载（可能不支持 GPTQ）
     try:
-        # 方式1: 使用 transformers 直接加载（需要 optimum）
-        print("  尝试方式1: transformers + optimum...")
+        print("  尝试方式3: 直接加载...")
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             device_map="auto",
             dtype=torch.bfloat16,
             trust_remote_code=True
         )
+        print("  ✅ 直接加载成功")
         return model
     except Exception as e:
-        print(f"  方式1失败: {e}")
+        print(f"  ⚠️ 直接加载失败: {e}")
     
-    try:
-        # 方式2: 使用 AutoGPTQ 加载
-        print("  尝试方式2: AutoGPTQ...")
-        from auto_gptq import AutoGPTQForCausalLM
-        model = AutoGPTQForCausalLM.from_quantized(
-            model_path,
-            device="cuda:0",
-            use_triton=False,
-            use_safetensors=True,
-            trust_remote_code=True,
-            inject_fused_attention=False,
-            disable_exllama=True,
-            disable_exllamav2=True
-        )
-        return model
-    except ImportError:
-        print("  ⚠️ AutoGPTQ 未安装")
-    except Exception as e:
-        print(f"  方式2失败: {e}")
-    
-    try:
-        # 方式3: 使用 vLLM 加载（仅用于推理）
-        print("  尝试方式3: vLLM...")
-        from vllm import LLM
-        model = LLM(
-            model=model_path,
-            trust_remote_code=True,
-            dtype="bfloat16",
-            max_model_len=8192,
-            gpu_memory_utilization=0.5,
-            quantization="gptq"
-        )
-        # vLLM 返回的是 LLM 对象，不能直接用于训练
-        print("  ⚠️ vLLM 不支持训练，仅用于推理")
-        return None
-    except ImportError:
-        print("  ⚠️ vLLM 未安装")
-    except Exception as e:
-        print(f"  方式3失败: {e}")
-    
-    # 方式4: 使用 transformers 加载原始模型（不加载量化权重）
-    try:
-        print("  尝试方式4: 加载原始模型（非量化）...")
-        # 读取原始模型配置
-        from transformers import AutoConfig
-        config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
-        # 不加载量化权重，只加载骨架
-        model = AutoModelForCausalLM.from_config(
-            config,
-            torch_dtype=torch.bfloat16,
-            trust_remote_code=True
-        )
-        print("  ⚠️ 使用随机初始化的权重（非量化），仅用于测试")
-        return model
-    except Exception as e:
-        print(f"  方式4失败: {e}")
-    
-    raise RuntimeError("无法加载 GPTQ 模型，请检查环境")
+    raise RuntimeError("无法加载模型，请检查环境")
 
 
 # ============================================================
@@ -351,10 +344,12 @@ def main():
     
     # 8. 加载模型
     print(f"\n📥 加载模型权重...")
-    model = load_gptq_model(model_path)
-    
-    if model is None:
-        print("❌ 无法加载模型，退出")
+    try:
+        model = load_model_for_training(model_path)
+    except Exception as e:
+        print(f"❌ 模型加载失败: {e}")
+        print("  提示: 如果是 GPTQ 模型，请安装: pip install optimum")
+        print("  或者使用非量化模型进行微调")
         return
     
     model.gradient_checkpointing_enable()
