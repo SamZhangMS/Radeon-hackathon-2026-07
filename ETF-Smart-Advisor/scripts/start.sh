@@ -25,7 +25,7 @@ fi
 echo ""
 echo "🔧 Setting GPU optimization environment variables..."
 export PYTORCH_ROCM_ALLOC_CONF="max_split_size_mb:128,expandable_segments:True"
-export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+export PYTORCH_ALLOC_CONF="expandable_segments:True"
 export TORCH_ROCM_GRAPH=1
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
