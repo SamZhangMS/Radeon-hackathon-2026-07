@@ -148,7 +148,9 @@ if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
     export FINETUNE_OUTPUT_DIR="./data/models/lora_etf_advisor"
     
     # 安装额外依赖
-    pip install scikit-learn datasets peft trl optimum -q
+    pip install optimum==1.20.0 -q
+    pip install auto-gptq==0.7.1 -q  # 或根据 ROCm 版本调整
+    pip install scikit-learn datasets peft trl -q
     
     # 运行调优脚本
     PYTHONPATH=. python scripts/finetune_qwen.py

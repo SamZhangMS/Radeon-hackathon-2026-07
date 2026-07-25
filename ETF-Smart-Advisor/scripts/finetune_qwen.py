@@ -203,6 +203,86 @@ def process_func(example, tokenizer, max_length: int = MAX_LENGTH):
 
 
 # ============================================================
+# 加载 GPTQ 模型的辅助函数
+# ============================================================
+
+def load_gptq_model(model_path: str):
+    """加载 GPTQ 量化模型"""
+    # 尝试不同的加载方式
+    try:
+        # 方式1: 使用 transformers 直接加载（需要 optimum）
+        print("  尝试方式1: transformers + optimum...")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            dtype=torch.bfloat16,
+            trust_remote_code=True
+        )
+        return model
+    except Exception as e:
+        print(f"  方式1失败: {e}")
+    
+    try:
+        # 方式2: 使用 AutoGPTQ 加载
+        print("  尝试方式2: AutoGPTQ...")
+        from auto_gptq import AutoGPTQForCausalLM
+        model = AutoGPTQForCausalLM.from_quantized(
+            model_path,
+            device="cuda:0",
+            use_triton=False,
+            use_safetensors=True,
+            trust_remote_code=True,
+            inject_fused_attention=False,
+            disable_exllama=True,
+            disable_exllamav2=True
+        )
+        return model
+    except ImportError:
+        print("  ⚠️ AutoGPTQ 未安装")
+    except Exception as e:
+        print(f"  方式2失败: {e}")
+    
+    try:
+        # 方式3: 使用 vLLM 加载（仅用于推理）
+        print("  尝试方式3: vLLM...")
+        from vllm import LLM
+        model = LLM(
+            model=model_path,
+            trust_remote_code=True,
+            dtype="bfloat16",
+            max_model_len=8192,
+            gpu_memory_utilization=0.5,
+            quantization="gptq"
+        )
+        # vLLM 返回的是 LLM 对象，不能直接用于训练
+        print("  ⚠️ vLLM 不支持训练，仅用于推理")
+        return None
+    except ImportError:
+        print("  ⚠️ vLLM 未安装")
+    except Exception as e:
+        print(f"  方式3失败: {e}")
+    
+    # 方式4: 使用 transformers 加载原始模型（不加载量化权重）
+    try:
+        print("  尝试方式4: 加载原始模型（非量化）...")
+        # 读取原始模型配置
+        from transformers import AutoConfig
+        config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+        # 不加载量化权重，只加载骨架
+        model = AutoModelForCausalLM.from_config(
+            config,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True
+        )
+        print("  ⚠️ 使用随机初始化的权重（非量化），仅用于测试")
+        return model
+    except Exception as e:
+        print(f"  方式4失败: {e}")
+    
+    raise RuntimeError("无法加载 GPTQ 模型，请检查环境")
+
+
+# ============================================================
 # 主函数
 # ============================================================
 
@@ -269,37 +349,13 @@ def main():
         bias="none"
     )
     
-    # 8. 加载模型 - 使用 `dtype` 替代 `torch_dtype`
-    print(f"\n📥 加载模型权重 (GPTQ 量化)...")
-    try:
-        # 尝试使用 optimum 加载 GPTQ 模型
-        from optimum.gptq import GPTQConfig
-        from transformers import GPTQConfig as TransformersGPTQConfig
-        
-        # 检查模型配置中的量化信息
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            device_map="auto",
-            dtype=torch.bfloat16,  # 使用 dtype 替代 torch_dtype
-            trust_remote_code=True
-        )
-    except ImportError:
-        print("⚠️ optimum 未安装，尝试直接加载...")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            device_map="auto",
-            dtype=torch.bfloat16,
-            trust_remote_code=True
-        )
-    except Exception as e:
-        print(f"⚠️ 加载失败: {e}")
-        print("尝试使用 CPU 加载...")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            device_map="cpu",
-            dtype=torch.bfloat16,
-            trust_remote_code=True
-        )
+    # 8. 加载模型
+    print(f"\n📥 加载模型权重...")
+    model = load_gptq_model(model_path)
+    
+    if model is None:
+        print("❌ 无法加载模型，退出")
+        return
     
     model.gradient_checkpointing_enable()
     model = get_peft_model(model, lora_config)
