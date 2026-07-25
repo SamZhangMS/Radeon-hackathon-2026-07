@@ -65,7 +65,7 @@ MODEL_SERVED_NAME="Qwen3-30B-A3B-GPTQ-Int4"
 # ModelScope 上的模型ID
 MODEL_SCOPE_ID="Qwen/Qwen3-30B-A3B-GPTQ-Int4"
 # 是否使用量化 (awq/gptq/etc)，若无量化留空 ""
-QUANTIZATION="awq"
+QUANTIZATION="gptq"
 # 最大模型长度
 MAX_MODEL_LEN=8192
 echo ""
