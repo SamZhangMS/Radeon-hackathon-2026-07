@@ -427,12 +427,9 @@ class ETFAdvisorAgent:
         # 检测是否请求分析
         if any(keyword in message_lower for keyword in ['分析', '评估', '怎么看', '建议']):
             if symbol:
-                # 获取技术分析
-                tech_analysis = await self._analyze_technical(symbol)
-                # 获取预测
-                pred_result = await self._get_ensemble_prediction(symbol)
-                # 获取推荐
-                rec_result = await self._get_recommendation(symbol)
+                tech_analysis = await self._analyze_technical_impl(symbol)
+                pred_result = await self._get_ensemble_prediction_impl(symbol)
+                rec_result = await self._get_recommendation_impl(symbol)
                 
                 combined = f"{tech_analysis}\n\n{pred_result}\n\n{rec_result}"
                 return {
