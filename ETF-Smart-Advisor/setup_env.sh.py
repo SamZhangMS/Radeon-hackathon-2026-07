@@ -120,7 +120,6 @@ else
     echo "  ✅ Model already exists"
 fi
 
-
 # 12. Clean up temporary files
 cleanup_temp_files() {
     echo ""
