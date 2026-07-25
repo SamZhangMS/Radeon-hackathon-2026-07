@@ -168,18 +168,21 @@ RSI: {current_rsi:.1f}
 
 def process_func(example, tokenizer, max_length: int = MAX_LENGTH):
     """处理单个样本"""
+    # 使用 chat template
     messages = [
         {"role": "system", "content": "你是一个专业的 ETF 投资分析师，擅长技术分析和投资建议。"},
         {"role": "user", "content": example['instruction'] + example['input']},
         {"role": "assistant", "content": example['output']}
     ]
     
+    # 应用 chat template
     text = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=False
     )
     
+    # Tokenize
     tokenized = tokenizer(
         text,
         truncation=True,
@@ -188,6 +191,7 @@ def process_func(example, tokenizer, max_length: int = MAX_LENGTH):
         return_tensors=None
     )
     
+    # 创建 labels (所有 token 都参与 loss 计算)
     input_ids = tokenized['input_ids']
     attention_mask = tokenized.get('attention_mask', [1] * len(input_ids))
     labels = input_ids.copy()
@@ -199,38 +203,76 @@ def process_func(example, tokenizer, max_length: int = MAX_LENGTH):
     }
 
 
-def load_model_simple(model_path: str):
-    """简化版模型加载 - 使用 bitsandbytes 4-bit 量化"""
-    print("  📥 使用 bitsandbytes 4-bit 量化加载...")
+def load_model_for_training(model_path: str):
+    """加载模型用于训练（支持 GPTQ 和普通模型）"""
     
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4"
-    )
+    # 检查是否是 GPTQ 模型
+    is_gptq = False
+    config_file = Path(model_path) / "config.json"
+    if config_file.exists():
+        import json
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+            if config.get('quantization_config', {}).get('quant_method') == 'gptq':
+                is_gptq = True
     
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        device_map="auto",
-        trust_remote_code=True,
-        quantization_config=bnb_config,
-        torch_dtype=torch.bfloat16
-    )
-    return model
-
-
-def load_model_fallback(model_path: str):
-    """备用加载方式 - 不使用量化"""
-    print("  📥 尝试直接加载（不使用量化）...")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        device_map="auto",
-        trust_remote_code=True,
-        torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True
-    )
-    return model
+    if is_gptq:
+        print("  📌 检测到 GPTQ 量化模型，尝试加载...")
+        
+        # 方法1: 尝试使用 transformers + optimum
+        try:
+            print("  尝试方式1: transformers + optimum...")
+            from optimum.gptq import GPTQConfig
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                device_map="auto",
+                dtype=torch.bfloat16,
+                trust_remote_code=True
+            )
+            print("  ✅ 使用 optimum 加载成功")
+            return model
+        except ImportError as e:
+            print(f"  ⚠️ optimum 未安装: {e}")
+        except Exception as e:
+            print(f"  ⚠️ optimum 加载失败: {e}")
+        
+        # 方法2: 使用 4-bit 量化加载
+        try:
+            print("  尝试方式2: 4-bit 量化加载...")
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
+            )
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                device_map="auto",
+                trust_remote_code=True,
+                quantization_config=bnb_config
+            )
+            print("  ✅ 使用 4-bit 量化加载成功")
+            return model
+        except ImportError:
+            print("  ⚠️ bitsandbytes 未安装")
+        except Exception as e:
+            print(f"  ⚠️ 4-bit 加载失败: {e}")
+    
+    # 方法3: 尝试直接加载（可能不支持 GPTQ）
+    try:
+        print("  尝试方式3: 直接加载...")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            dtype=torch.bfloat16,
+            trust_remote_code=True
+        )
+        print("  ✅ 直接加载成功")
+        return model
+    except Exception as e:
+        print(f"  ⚠️ 直接加载失败: {e}")
+    
+    raise RuntimeError("无法加载模型，请检查环境")
 
 
 # ============================================================
@@ -302,22 +344,12 @@ def main():
     
     # 8. 加载模型
     print(f"\n📥 加载模型权重...")
-    
-    model = None
     try:
-        model = load_model_simple(model_path)
-        print("  ✅ 使用 bitsandbytes 4-bit 量化加载成功")
+        model = load_model_for_training(model_path)
     except Exception as e:
-        print(f"  ⚠️ 4-bit 量化加载失败: {e}")
-        try:
-            model = load_model_fallback(model_path)
-            print("  ✅ 直接加载成功（不使用量化）")
-        except Exception as e2:
-            print(f"  ❌ 模型加载失败: {e2}")
-            return
-    
-    if model is None:
-        print("❌ 无法加载模型，退出")
+        print(f"❌ 模型加载失败: {e}")
+        print("  提示: 如果是 GPTQ 模型，请安装: pip install optimum")
+        print("  或者使用非量化模型进行微调")
         return
     
     model.gradient_checkpointing_enable()
