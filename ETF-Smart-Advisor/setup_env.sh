@@ -4,7 +4,7 @@
 set -e
 
 echo "=============================================="
-echo "🚀 ETF-Smart Advisor Environment Setup (ROCm 7.2.1)"
+echo "🚀 ETF-Smart Advisor Environment Setup"
 echo "=============================================="
 
 # 1. Get project root directory
@@ -20,7 +20,7 @@ if command -v rocm-smi &> /dev/null; then
     echo "✅ ROCm detected successfully!"
     rocm-smi --showproductname
 else
-    echo "❌ ROCm not detected, please install ROCm 7.2.1 first"
+    echo "❌ ROCm not detected, please install ROCm first"
     exit 1
 fi
 
@@ -148,7 +148,7 @@ if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
     export FINETUNE_OUTPUT_DIR="./data/models/lora_etf_advisor"
     
     # 安装额外依赖
-    pip install scikit-learn datasets peft trl -q
+    pip install scikit-learn datasets peft trl optimum -q
     
     # 运行调优脚本
     PYTHONPATH=. python scripts/finetune_qwen.py

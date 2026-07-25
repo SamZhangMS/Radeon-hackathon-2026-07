@@ -238,8 +238,8 @@ def main():
         print("请先运行 setup_env.sh 部署 Qwen 模型")
         return
     
-    # 5. 加载 Tokenizer 和 Model
-    print(f"\n📥 加载模型: {model_path}")
+    # 5. 加载 Tokenizer
+    print(f"\n📥 加载 Tokenizer: {model_path}")
     tokenizer = AutoTokenizer.from_pretrained(
         model_path,
         trust_remote_code=True,
@@ -269,14 +269,38 @@ def main():
         bias="none"
     )
     
-    # 8. 加载模型
-    print(f"\n📥 加载模型权重...")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-        trust_remote_code=True
-    )
+    # 8. 加载模型 - 使用 `dtype` 替代 `torch_dtype`
+    print(f"\n📥 加载模型权重 (GPTQ 量化)...")
+    try:
+        # 尝试使用 optimum 加载 GPTQ 模型
+        from optimum.gptq import GPTQConfig
+        from transformers import GPTQConfig as TransformersGPTQConfig
+        
+        # 检查模型配置中的量化信息
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            dtype=torch.bfloat16,  # 使用 dtype 替代 torch_dtype
+            trust_remote_code=True
+        )
+    except ImportError:
+        print("⚠️ optimum 未安装，尝试直接加载...")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            dtype=torch.bfloat16,
+            trust_remote_code=True
+        )
+    except Exception as e:
+        print(f"⚠️ 加载失败: {e}")
+        print("尝试使用 CPU 加载...")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="cpu",
+            dtype=torch.bfloat16,
+            trust_remote_code=True
+        )
+    
     model.gradient_checkpointing_enable()
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
