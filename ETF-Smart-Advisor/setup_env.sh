@@ -123,19 +123,51 @@ mkdir -p data/models data/cache
 # 11. Check and download Qwen model
 echo ""
 echo "📥 Checking Qwen3-30B-A3B-GPTQ-Int4..."
-if [ ! -d "./models/Qwen3-30B-A3B-GPTQ-Int4" ]; then
+MODEL_PATH="./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+if [ ! -d "$MODEL_PATH" ]; then
     echo "  Model not found, downloading ..."
-    mkdir -p models
-    pip install modelscope
-    # modelscope download --model Qwen/Qwen3-30B-A3B --local_dir ./models/Qwen3-30B-A3B
-    # modelscope download --model Qwen/Qwen3-30B-A3B-AWQ --local_dir ./models/Qwen3-30B-A3B-AWQ
-    modelscope download --model Qwen/Qwen3-30B-A3B-GPTQ-Int4 --local_dir ./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4
+    mkdir -p models/Qwen
+    pip install modelscope -q
+    modelscope download --model Qwen/Qwen3-30B-A3B-GPTQ-Int4 --local_dir "$MODEL_PATH"
 else
     echo "  ✅ Model already exists"
 fi
 
+# ============================================================
+# 12. LoRA 调优（使用 ETF 历史数据）
+# ============================================================
+echo ""
+echo "🔧 Running LoRA fine-tuning on Qwen with ETF data..."
 
-# 12. Clean up temporary files
+# 检查数据目录是否存在
+if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
+    echo "  ✅ ETF data found, starting fine-tuning..."
+    
+    # 设置环境变量
+    export FINETUNE_MODEL_PATH="$MODEL_PATH"
+    export FINETUNE_OUTPUT_DIR="./data/models/lora_etf_advisor"
+    
+    # 安装额外依赖
+    pip install scikit-learn datasets peft trl -q
+    
+    # 运行调优脚本
+    PYTHONPATH=. python scripts/finetune_qwen.py
+    
+    # 检查调优是否成功
+    if [ -f "./data/models/lora_etf_advisor/adapter_model.safetensors" ]; then
+        echo "  ✅ LoRA fine-tuning completed successfully!"
+        echo "  📁 LoRA weights saved to: ./data/models/lora_etf_advisor"
+    else
+        echo "  ⚠️ LoRA fine-tuning may have failed, check logs above"
+    fi
+else
+    echo "  ⚠️ ETF data not found at ./data/1D, skipping fine-tuning"
+    echo "  💡 Please add ETF historical data files (*.txt) to ./data/1D/"
+    echo "  💡 Example format: date,open,high,low,close,volume,money"
+fi
+
+
+# 13. Clean up temporary files
 cleanup_temp_files() {
     echo ""
     echo "🧹 Cleaning up temporary files to save disk space..."
@@ -173,7 +205,7 @@ else
     echo "  Skipping cleanup"
 fi
 
-# 13. Start the service
+# 14. Start the service
 echo ""
 echo "=============================================="
 echo "✅ Environment setup complete, starting service..."

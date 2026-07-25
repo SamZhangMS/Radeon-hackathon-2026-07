@@ -14,7 +14,7 @@ class ETFAdvisorLoRATuner:
 
     def __init__(self, base_model_name: str, device_map: str = "auto"):
         if base_model_name is None:
-            base_model_name = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B")
+            base_model_name = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B-GPTQ-Int4")
         self.base_model_name = base_model_name
         self.device_map = device_map
         

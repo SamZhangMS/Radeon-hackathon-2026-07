@@ -111,11 +111,98 @@ class LSTMPredictor(nn.Module):
         output = output.view(-1, self.pred_length, self.input_size)
         return output
 
+
+class LSTMConfig:
+    def __init__(self, input_size=5, hidden_size=64, num_layers=2, seq_length=60, pred_length=20, dropout=0.1):
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.seq_length = seq_length
+        self.pred_length = pred_length
+        self.dropout = dropout
+
+class LightLSTMPredictor(nn.Module):
+    """轻量级LSTM预测模型 - 充分利用GPU算力"""
+    
+    def __init__(self, config: LSTMConfig):
+        super().__init__()
+        self.config = config
+        self.seq_length = config.seq_length
+        self.pred_length = config.pred_length
+        
+        self.lstm = nn.LSTM(
+            input_size=config.input_size,
+            hidden_size=config.hidden_size,
+            num_layers=config.num_layers,
+            batch_first=True,
+            dropout=config.dropout if config.num_layers > 1 else 0
+        )
+        
+        self.fc = nn.Sequential(
+            nn.Linear(config.hidden_size, config.hidden_size // 2),
+            nn.ReLU(),
+            nn.Dropout(config.dropout),
+            nn.Linear(config.hidden_size // 2, config.pred_length * config.input_size)
+        )
+    
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        last_output = lstm_out[:, -1, :]
+        output = self.fc(last_output)
+        output = output.view(-1, self.pred_length, self.config.input_size)
+        return output
+
+class TransformerLightConfig:
+    def __init__(self, input_size=5, d_model=64, nhead=4, num_layers=2, seq_length=60, pred_length=20, dropout=0.1):
+        self.input_size = input_size
+        self.d_model = d_model
+        self.nhead = nhead
+        self.num_layers = num_layers
+        self.seq_length = seq_length
+        self.pred_length = pred_length
+        self.dropout = dropout
+
+class LightTransformerPredictor(nn.Module):
+    """轻量级Transformer预测模型 - 充分利用GPU算力"""
+    
+    def __init__(self, config: TransformerLightConfig):
+        super().__init__()
+        self.config = config
+        self.seq_length = config.seq_length
+        self.pred_length = config.pred_length
+        
+        self.input_proj = nn.Linear(config.input_size, config.d_model)
+        self.pos_encoder = PositionalEncoding(config.d_model, config.dropout)
+        
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=config.d_model,
+            nhead=config.nhead,
+            dim_feedforward=config.d_model * 4,
+            dropout=config.dropout,
+            batch_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=config.num_layers)
+        
+        self.output_proj = nn.Sequential(
+            nn.Linear(config.d_model, config.d_model // 2),
+            nn.GELU(),
+            nn.Dropout(config.dropout),
+            nn.Linear(config.d_model // 2, config.pred_length * config.input_size)
+        )
+    
+    def forward(self, x):
+        x = self.input_proj(x)
+        x = self.pos_encoder(x)
+        x = self.transformer(x)
+        x = x[:, -1, :]
+        x = self.output_proj(x)
+        x = x.view(-1, self.pred_length, self.config.input_size)
+        return x
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
-        
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
         div_term = torch.exp(
@@ -129,15 +216,14 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
-
-
+    
 class ETFPricePredictor:
     """ETF价格预测器"""
     
     def __init__(self, base_model_name: Optional[str] = None):
         # 
         if base_model_name is None:
-            base_model_name = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B")
+            base_model_name = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B-GPTQ-Int4")
         self.base_model_name = base_model_name
 
         self.model = TimeSeriesTransformer(
@@ -167,7 +253,224 @@ class ETFPricePredictor:
 
         if self.lora_path.exists():
             self.load_lora_adapter(str(self.lora_path))
+    
+        self._init_gpu_predictors()
+    
+    def _init_gpu_predictors(self):
+        """初始化GPU本地预测器（无需预训练）"""
+        from .config import GPU_LOCAL_PREDICTORS, DEVICE
+        
+        self.gpu_predictors = {}
+        
+        # 初始化LSTM预测器
+        if GPU_LOCAL_PREDICTORS.get("lstm_light", {}).get("enabled", True):
+            config = GPU_LOCAL_PREDICTORS["lstm_light"]
+            self.gpu_predictors["lstm_light"] = {
+                "model": LightLSTMPredictor(
+                    LSTMConfig(
+                        hidden_size=config.get("hidden_size", 64),
+                        num_layers=config.get("num_layers", 2),
+                        dropout=config.get("dropout", 0.1)
+                    )
+                ).to(DEVICE),
+                "config": config,
+                "name": config.get("name", "LSTM-Light (GPU)")
+            }
+        
+        # 初始化Transformer预测器
+        if GPU_LOCAL_PREDICTORS.get("transformer_light", {}).get("enabled", True):
+            config = GPU_LOCAL_PREDICTORS["transformer_light"]
+            self.gpu_predictors["transformer_light"] = {
+                "model": LightTransformerPredictor(
+                    TransformerLightConfig(
+                        d_model=config.get("d_model", 64),
+                        nhead=config.get("nhead", 4),
+                        num_layers=config.get("num_layers", 2),
+                        dropout=config.get("dropout", 0.1)
+                    )
+                ).to(DEVICE),
+                "config": config,
+                "name": config.get("name", "Transformer-Light (GPU)")
+            }
+    
+    def predict_gpu_local(self, df: pd.DataFrame) -> Dict:
+        """使用GPU本地模型进行预测（无需预训练）"""
+        if len(df) < self.seq_length:
+            return {'error': '数据不足', 'success': False}
+        
+        from .config import DEVICE
+        
+        # 准备数据
+        features = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
+        means = features.mean(axis=0)
+        stds = features.std(axis=0)
+        stds[stds == 0] = 1
+        features_norm = (features - means) / stds
+        
+        data_tensor = torch.tensor(features_norm, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        
+        results = {}
+        valid_predictions = []
+        weights = []
+        
+        # 运行每个GPU预测器
+        for key, predictor_info in self.gpu_predictors.items():
+            model = predictor_info["model"]
+            name = predictor_info["name"]
+            weight = predictor_info["config"].get("weight", 0.3)
             
+            try:
+                model.eval()
+                with torch.no_grad():
+                    pred = model(data_tensor)
+                
+                pred_np = pred.cpu().numpy()[0]
+                pred_denorm = pred_np * stds + means
+                
+                close_prices = pred_denorm[:, 3]
+                last_date = df.index[-1]
+                future_dates = [last_date + timedelta(days=i+1) for i in range(self.pred_length)]
+                
+                results[name] = {
+                    'success': True,
+                    'model': name,
+                    'dates': [d.strftime('%Y-%m-%d') for d in future_dates],
+                    'close': close_prices.tolist(),
+                    'predicted_change': (close_prices[-1] - close_prices[0]) / close_prices[0],
+                    'confidence': 0.5,
+                    'is_gpu_local': True
+                }
+                valid_predictions.append(results[name])
+                weights.append(weight)
+            except Exception as e:
+                results[name] = {'error': str(e), 'success': False}
+        
+        # 生成集成预测
+        if valid_predictions:
+            # 归一化权重
+            total_weight = sum(weights)
+            normalized_weights = [w / total_weight for w in weights]
+            
+            # 加权平均
+            ensemble_close = np.zeros(len(valid_predictions[0]['close']))
+            for pred, w in zip(valid_predictions, normalized_weights):
+                ensemble_close += np.array(pred['close']) * w
+            
+            results['ensemble'] = {
+                'success': True,
+                'dates': valid_predictions[0]['dates'],
+                'close': ensemble_close.tolist(),
+                'predicted_change': (ensemble_close[-1] - ensemble_close[0]) / ensemble_close[0],
+                'confidence': 0.6,
+                'model_weights': {pred.get('model', 'Unknown'): w 
+                                 for pred, w in zip(valid_predictions, normalized_weights)},
+                'is_ensemble': True
+            }
+        
+        return results
+    
+    
+    async def call_llm_api(self, df: pd.DataFrame, llm_type: str = 'deepseek') -> Dict:
+        """调用大模型API进行预测"""
+        from .config import LLM_API_CONFIG
+        import httpx
+        
+        config = LLM_API_CONFIG.get(llm_type)
+        if not config or not config.get('enabled', False):
+            return {'error': f'LLM {llm_type} 未启用', 'success': False}
+        
+        # 准备数据摘要
+        data_summary = {
+            'last_price': float(df['close'].iloc[-1]),
+            'ma5': float(df['close'].rolling(5).mean().iloc[-1]),
+            'ma20': float(df['close'].rolling(20).mean().iloc[-1]),
+            'volatility': float(df['close'].pct_change().std() * np.sqrt(252))
+        }
+        
+        prompt = f"""基于以下ETF数据预测未来20天价格走势：
+        最新价格: {data_summary['last_price']:.3f}
+        5日均线: {data_summary['ma5']:.3f}
+        20日均线: {data_summary['ma20']:.3f}
+        年化波动率: {data_summary['volatility']:.3f}
+        
+        请输出20天的预测价格（以JSON数组格式），只返回价格数组。"""
+        
+        messages = [{"role": "user", "content": prompt}]
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    config['api_base'],
+                    headers={
+                        "Authorization": f"Bearer {config['api_key']}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": config['model'],
+                        "messages": messages,
+                        "temperature": 0.7
+                    }
+                )
+                result = response.json()
+                content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+                
+                # 尝试解析JSON响应
+                import re
+                json_match = re.search(r'\[[\d.,\s]+\]', content)
+                if json_match:
+                    import json
+                    pred_prices = json.loads(json_match.group())
+                    if len(pred_prices) >= 20:
+                        pred_prices = pred_prices[:20]
+                        pred_dates = [(df.index[-1] + timedelta(days=i+1)).strftime('%Y-%m-%d') 
+                                     for i in range(len(pred_prices))]
+                        
+                        return {
+                            'success': True,
+                            'model': config['name'],
+                            'dates': pred_dates,
+                            'close': pred_prices,
+                            'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
+                            'confidence': 0.7,
+                            'is_llm': True,
+                            'raw_response': content
+                        }
+                
+                return {
+                    'success': True,
+                    'model': config['name'],
+                    'response': content,
+                    'is_llm': True,
+                    'raw_response': content
+                }
+        except Exception as e:
+            return {'error': str(e), 'success': False}
+    
+    def get_all_predictions(self, df: pd.DataFrame) -> Dict:
+        """获取所有预测结果（GPU本地 + Transformer-LSTM）"""
+        results = {
+            'gpu_local': {},
+            'transformer_lstm': {},
+            'all_predictions': []
+        }
+        
+        # 1. GPU本地预测
+        gpu_results = self.predict_gpu_local(df)
+        for name, pred in gpu_results.items():
+            if pred.get('success', False):
+                results['gpu_local'][name] = pred
+                results['all_predictions'].append(pred)
+        
+        # 2. Transformer-LSTM预测
+        try:
+            trans_pred = self.predict(df, use_ensemble=True)
+            if trans_pred.get('success', False):
+                results['transformer_lstm'] = trans_pred
+                results['all_predictions'].append(trans_pred)
+        except Exception:
+            pass
+        
+        return results     
     def load_lstm_model(self):
         """加载 LSTM 模型"""
         try:
@@ -511,3 +814,4 @@ class ETFPricePredictor:
             'n_samples': len(sequences),
             'final_loss': losses[-1]
         }
+        

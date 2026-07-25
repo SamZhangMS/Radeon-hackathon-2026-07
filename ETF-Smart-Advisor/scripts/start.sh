@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/start.sh - Service startup script (assumes environment is ready)
+# scripts/start.sh - Service startup script
 
 set -e
 
@@ -57,19 +57,25 @@ if command -v rocm-smi &> /dev/null; then
     rocm-smi --showmeminfo vram
 fi
 
-# 7. Check Qwen model
+# ============================================================
+# 7. Check Qwen model and LoRA adapter
+# ============================================================
+echo ""
+echo "🔍 Checking Qwen model..."
+
 # 模型本地路径
 MODEL_PATH="./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4"
-# 模型服务名称 (可自定义)
+# LoRA 适配器路径
+LORA_PATH="./data/models/lora_etf_advisor"
+# 模型服务名称
 MODEL_SERVED_NAME="Qwen3-30B-A3B-GPTQ-Int4"
 # ModelScope 上的模型ID
 MODEL_SCOPE_ID="Qwen/Qwen3-30B-A3B-GPTQ-Int4"
-# 是否使用量化 (awq/gptq/etc)，若无量化留空 ""
+# 量化类型
 QUANTIZATION="gptq"
 # 最大模型长度
 MAX_MODEL_LEN=8192
-echo ""
-echo "🔍 Checking Qwen model..."
+
 if [ ! -d "$MODEL_PATH" ]; then
     echo "  ❌ Model not found at: $MODEL_PATH"
     echo "  Please run: modelscope download --model $MODEL_SCOPE_ID --local_dir $MODEL_PATH"
@@ -78,16 +84,31 @@ else
     echo "  ✅ Model exists at: $MODEL_PATH"
 fi
 
+# 检查 LoRA 适配器
+if [ -f "$LORA_PATH/adapter_model.safetensors" ]; then
+    echo "  ✅ LoRA adapter found at: $LORA_PATH"
+    export LORA_ADAPTER_PATH="$LORA_PATH"
+else
+    echo "  ℹ️ LoRA adapter not found, using base model"
+    export LORA_ADAPTER_PATH=""
+fi
+
 # 8. Start vLLM with optimized settings
 echo ""
 echo "🚀 Starting vLLM inference service..."
 echo "  Using model: $MODEL_PATH"
 echo "  GPU memory utilization: 0.80"
 
-# 构建量化参数 (如果定义了 QUANTIZATION 且不为空)
+# 构建量化参数
 QUANTIZATION_ARG=""
 if [ -n "$QUANTIZATION" ]; then
     QUANTIZATION_ARG="--quantization $QUANTIZATION"
+fi
+
+# 构建 LoRA 参数
+LORA_ARG=""
+if [ -n "$LORA_ADAPTER_PATH" ]; then
+    LORA_ARG="--enable-lora --lora-modules qwen_lora=$LORA_ADAPTER_PATH"
 fi
 
 VLLM_USE_TRITON_FLASH_ATTN=0 \
@@ -100,10 +121,10 @@ vllm serve "$MODEL_PATH" \
     --trust-remote-code \
     --gpu-memory-utilization=0.80 \
     --max-num-seqs=16 \
-    --dtype=float16  \
+    --dtype=float16 \
     $QUANTIZATION_ARG \
-    --max-model-len="$MAX_MODEL_LEN" &
-
+    --max-model-len="$MAX_MODEL_LEN" \
+    $LORA_ARG &
 
 VLLM_PID=$!
 echo "  vLLM PID: $VLLM_PID"

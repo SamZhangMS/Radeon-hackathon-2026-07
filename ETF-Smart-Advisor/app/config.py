@@ -15,11 +15,11 @@ DEVICE = "cuda" if os.environ.get("ROCM_VISIBLE_DEVICES") else "cpu"
 
 VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
 VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://localhost:8000/v1")
-VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3-30B-A3B")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3-30B-A3B-GPTQ-Int4")
 
 # LLM配置
 LLM_CONFIG = {
-    "model_name": "Qwen/Qwen3-30B-A3B",
+    "model_name": "Qwen/Qwen3-30B-A3B-GPTQ-Int4",
     "api_base": "http://localhost:8000/v1",
     "api_key": "abc-123",
 }
@@ -118,4 +118,105 @@ ENSEMBLE_CONFIG = {
     "transformer_weight": 0.6,  # Transformer 权重
     "lstm_weight": 0.4,  # LSTM 权重
     "min_confidence": 0.3,  # 最低置信度
+}
+
+GPU_LOCAL_PREDICTORS = {
+    "lstm_light": {
+        "name": "LSTM-Light (GPU)",
+        "enabled": True,
+        "weight": 0.35,
+        "hidden_size": 64,
+        "num_layers": 2,
+        "dropout": 0.1
+    },
+    "transformer_light": {
+        "name": "Transformer-Light (GPU)",
+        "enabled": True,
+        "weight": 0.45,
+        "d_model": 64,
+        "nhead": 4,
+        "num_layers": 2,
+        "dropout": 0.1
+    }
+}
+
+# ============================================================
+# 大模型API配置（可扩展）
+# ============================================================
+
+LLM_API_CONFIG = {
+    "deepseek": {
+        "name": "DeepSeek-V4-Flash",
+        "api_base": os.environ.get("DEEPSEEK_API_BASE", "https://radeon.anruicloud.com/api/v1/chat/completions"),
+        "api_key": os.environ.get("DEEPSEEK_API_KEY", "rc-7011453aecbbe0901a4b6d73980aea50852ad2c3002d8bf6"),
+        "model": os.environ.get("DEEPSEEK_MODEL", "DeepSeek-V4-Flash"),
+        "enabled": True,
+        "weight": 0.3,
+        "type": "remote"
+    },
+    "qwen_local": {
+        "name": "Qwen-Local",
+        "api_base": os.environ.get("QWEN_API_BASE", LLM_CONFIG["api_base"]),
+        "api_key": os.environ.get("QWEN_API_KEY", LLM_CONFIG["api_key"]),
+        "model": os.environ.get("QWEN_MODEL_NAME", LLM_CONFIG["model_name"]),
+        "enabled": True,
+        "weight": 0.4,
+        "type": "local"
+    }
+}
+
+
+# ============================================================
+# Dify配置
+# ============================================================
+
+DIFY_CONFIG = {
+    "enabled": True,
+    "api_base": os.environ.get("DIFY_API_BASE", "http://localhost:5001/v1"),
+    "api_key": os.environ.get("DIFY_API_KEY", "app-xxx"),
+    # 每个预测模型对应一个 Agent
+    "agents": {
+        "gpu_lstm": {
+            "name": "GPU-LSTM Predictor",
+            "workflow_id": os.environ.get("DIFY_GPU_LSTM_WORKFLOW", "gpu_lstm_workflow"),
+            "enabled": True,
+            "weight": 0.25
+        },
+        "gpu_transformer": {
+            "name": "GPU-Transformer Predictor",
+            "workflow_id": os.environ.get("DIFY_GPU_TRANSFORMER_WORKFLOW", "gpu_transformer_workflow"),
+            "enabled": True,
+            "weight": 0.30
+        },
+        "transformer_lstm": {
+            "name": "Transformer-LSTM Predictor",
+            "workflow_id": os.environ.get("DIFY_TRANSFORMER_LSTM_WORKFLOW", "transformer_lstm_workflow"),
+            "enabled": True,
+            "weight": 0.25
+        },
+        "deepseek": {
+            "name": "DeepSeek-V4-Flash",
+            "workflow_id": os.environ.get("DIFY_DEEPSEEK_WORKFLOW", "deepseek_workflow"),
+            "enabled": True,
+            "weight": 0.20
+        }
+    },
+    "ensemble_workflow": os.environ.get("DIFY_ENSEMBLE_WORKFLOW", "ensemble_workflow")
+}
+
+# ============================================================
+# LoRA微调配置
+# ============================================================
+
+LORA_FINETUNE_CONFIG = {
+    "enabled": True,
+    "output_dir": MODELS_DIR / "lora_etf_advisor",
+    "r": 16,
+    "lora_alpha": 32,
+    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+    "lora_dropout": 0.1,
+    "batch_size": 2,
+    "epochs": 3,
+    "learning_rate": 2e-4,
+    "max_seq_length": 2048
 }

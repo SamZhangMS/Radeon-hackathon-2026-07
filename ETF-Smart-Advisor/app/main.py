@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import uvicorn
-import os
+import os,Request
 import json
 import hashlib
 from collections import defaultdict
@@ -229,6 +229,58 @@ async def batch_analysis(symbols: List[str]):
             })
     return {"status": "success", "results": results}
 
+@app.post("/api/dify/predict", dependencies=[Depends(verify_token)])
+async def dify_predict(request: PredictRequest):
+    """通过 Dify 统一管理所有预测模型"""
+    df = agent.fetcher.get_history(request.symbol)
+    if df.empty:
+        raise HTTPException(404, f"无法获取 {request.symbol} 的数据")
+    
+    results = await agent._call_all_dify_agents(request.symbol, df)
+    return {
+        "symbol": request.symbol,
+        "results": results,
+        "timestamp": datetime.now().isoformat()
+    }
+
+# ✅ LoRA微调端点
+@app.post("/api/lora/finetune", dependencies=[Depends(verify_token)])
+async def lora_finetune(request: Request):
+    """使用历史基金数据微调Qwen"""
+    try:
+        from .config import LORA_FINETUNE_CONFIG
+        data = await request.json()
+        symbol = data.get('symbol', '510300')
+        
+        df = agent.fetcher.get_history(symbol, "3y")
+        if df.empty:
+            raise HTTPException(404, f"无法获取 {symbol} 的数据")
+        
+        train_data = []
+        for i in range(len(df) - 60, len(df) - 10):
+            row = df.iloc[i]
+            train_data.append({
+                "instruction": f"分析ETF {symbol} 的技术指标并预测未来走势",
+                "output": f"当前价格: {row['close']:.3f}, 建议: {'买入' if row['close'] > df.iloc[i-1]['close'] else '卖出'}"
+            })
+        
+        import pandas as pd
+        train_df = pd.DataFrame(train_data[:200])
+        
+        from .lora_finetuner import ETFAdvisorLoRATuner
+        tuner = ETFAdvisorLoRATuner(LLM_CONFIG["model_name"])
+        tuner.load_model_and_tokenizer()
+        tuner.train_lora(train_df, str(LORA_FINETUNE_CONFIG["output_dir"]))
+        
+        return {
+            "status": "success",
+            "message": "LoRA微调完成",
+            "samples": len(train_data),
+            "output_dir": str(LORA_FINETUNE_CONFIG["output_dir"])
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7860)
     
