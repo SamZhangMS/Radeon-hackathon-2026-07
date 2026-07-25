@@ -166,43 +166,6 @@ LLM_API_CONFIG = {
 }
 
 
-# ============================================================
-# Dify配置
-# ============================================================
-
-DIFY_CONFIG = {
-    "enabled": True,
-    "api_base": os.environ.get("DIFY_API_BASE", "http://localhost:5001/v1"),
-    "api_key": os.environ.get("DIFY_API_KEY", "app-xxx"),
-    # 每个预测模型对应一个 Agent
-    "agents": {
-        "gpu_lstm": {
-            "name": "GPU-LSTM Predictor",
-            "workflow_id": os.environ.get("DIFY_GPU_LSTM_WORKFLOW", "gpu_lstm_workflow"),
-            "enabled": True,
-            "weight": 0.25
-        },
-        "gpu_transformer": {
-            "name": "GPU-Transformer Predictor",
-            "workflow_id": os.environ.get("DIFY_GPU_TRANSFORMER_WORKFLOW", "gpu_transformer_workflow"),
-            "enabled": True,
-            "weight": 0.30
-        },
-        "transformer_lstm": {
-            "name": "Transformer-LSTM Predictor",
-            "workflow_id": os.environ.get("DIFY_TRANSFORMER_LSTM_WORKFLOW", "transformer_lstm_workflow"),
-            "enabled": True,
-            "weight": 0.25
-        },
-        "deepseek": {
-            "name": "DeepSeek-V4-Flash",
-            "workflow_id": os.environ.get("DIFY_DEEPSEEK_WORKFLOW", "deepseek_workflow"),
-            "enabled": True,
-            "weight": 0.20
-        }
-    },
-    "ensemble_workflow": os.environ.get("DIFY_ENSEMBLE_WORKFLOW", "ensemble_workflow")
-}
 
 # ============================================================
 # LoRA微调配置

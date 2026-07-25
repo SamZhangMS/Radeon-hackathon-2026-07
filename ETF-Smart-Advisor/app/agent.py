@@ -4,19 +4,21 @@ from collections import defaultdict
 from datetime import datetime
 import logging
 from pathlib import Path
+from typing import Dict, Any, List, Optional
 
 from pydantic_ai import Agent, Tool
 from pydantic_ai.models.openai import OpenAIChatModel
-
 from pydantic_ai.providers.openai import OpenAIProvider
-from typing import Dict, Any, List, Optional
 
 from .gpu_optimizer import ROCmGPUOptimizer
 from .stability_manager import StabilityManager
 from .feedback_learning import FeedbackLearning
 from .lightweight_adapter import LightweightAdapter
-
-from .config import LLM_CONFIG, AGENT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT_EXTENDED, DEFAULT_ETF_POOL, RAG_CONFIG, MEMORY_CONFIG,MODELS_DIR
+from .config import (
+    LLM_CONFIG, AGENT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT_EXTENDED,
+    DEFAULT_ETF_POOL, RAG_CONFIG, MEMORY_CONFIG, MODELS_DIR,
+    LLM_API_CONFIG
+)
 from .data_fetcher import ETFDataFetcher
 from .advisor import InvestmentAdvisor
 from .predictor import ETFPricePredictor
@@ -157,235 +159,10 @@ class ETFAdvisorAgent:
             system_prompt=full_system_prompt,
             tools=self._get_tools(),
         )
-        self._init_dify_client()
         
-    def _init_dify_client(self):
-        """初始化 Dify 客户端"""
-        from .config import DIFY_CONFIG
-        self.dify_enabled = DIFY_CONFIG.get('enabled', False)
-        self.dify_config = DIFY_CONFIG
+        
     
-    async def _call_dify_agent(self, agent_key: str, inputs: Dict) -> Dict:
-        """调用 Dify Agent 进行预测"""
-        from .config import DIFY_CONFIG
-        import httpx
-        
-        if not self.dify_enabled:
-            return {'error': 'Dify 未启用', 'success': False}
-        
-        agent_config = DIFY_CONFIG.get('agents', {}).get(agent_key)
-        if not agent_config or not agent_config.get('enabled', False):
-            return {'error': f'Agent {agent_key} 未启用', 'success': False}
-        
-        workflow_id = agent_config.get('workflow_id')
-        if not workflow_id:
-            return {'error': f'Agent {agent_key} 未配置 workflow_id', 'success': False}
-        
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{DIFY_CONFIG['api_base']}/workflows/{workflow_id}/run",
-                    headers={
-                        "Authorization": f"Bearer {DIFY_CONFIG['api_key']}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "inputs": inputs,
-                        "response_mode": "blocking",
-                        "user": inputs.get('user', 'etf-user')
-                    }
-                )
-                result = response.json()
-                return {
-                    'success': True,
-                    'agent': agent_key,
-                    'name': agent_config.get('name', agent_key),
-                    'result': result,
-                    'weight': agent_config.get('weight', 0.2)
-                }
-        except Exception as e:
-            return {'error': str(e), 'success': False}
     
-    async def _call_all_dify_agents(self, symbol: str, df: pd.DataFrame) -> Dict:
-        """并行调用所有 Dify Agent 进行预测"""
-        from .config import DIFY_CONFIG
-        import asyncio
-        
-        # 准备输入数据
-        data_summary = {
-            'symbol': symbol,
-            'last_price': float(df['close'].iloc[-1]),
-            'ma5': float(df['close'].rolling(5).mean().iloc[-1]),
-            'ma20': float(df['close'].rolling(20).mean().iloc[-1]),
-            'volatility': float(df['close'].pct_change().std() * np.sqrt(252)),
-            'data': df.tail(60).to_dict()
-        }
-        
-        # 并行调用所有启用的 Agent
-        tasks = []
-        agent_keys = []
-        for key, config in DIFY_CONFIG.get('agents', {}).items():
-            if config.get('enabled', False):
-                tasks.append(self._call_dify_agent(key, data_summary))
-                agent_keys.append(key)
-        
-        results = await asyncio.gather(*tasks)
-        
-        # 组织结果
-        agent_results = {}
-        valid_predictions = []
-        weights = []
-        
-        for key, result in zip(agent_keys, results):
-            if result.get('success', False):
-                agent_results[key] = result
-                # 尝试从结果中提取预测数据
-                output = result.get('result', {}).get('data', {}).get('outputs', {})
-                if 'close' in output or 'predicted_change' in output:
-                    valid_predictions.append({
-                        'name': result.get('name', key),
-                        'predicted_change': output.get('predicted_change', 0),
-                        'close': output.get('close', []),
-                        'confidence': output.get('confidence', 0.5)
-                    })
-                    weights.append(result.get('weight', 0.2))
-        
-        # 生成集成预测
-        ensemble = {}
-        if valid_predictions and len(valid_predictions) > 1:
-            total_weight = sum(weights)
-            normalized_weights = [w / total_weight for w in weights]
-            
-            # 加权平均预测变化
-            ensemble_change = sum(p['predicted_change'] * w 
-                                 for p, w in zip(valid_predictions, normalized_weights))
-            
-            # 加权平均价格
-            min_len = min(len(p.get('close', [])) for p in valid_predictions)
-            if min_len > 0:
-                ensemble_close = np.zeros(min_len)
-                for p, w in zip(valid_predictions, normalized_weights):
-                    ensemble_close += np.array(p['close'][:min_len]) * w
-                ensemble = {
-                    'success': True,
-                    'predicted_change': ensemble_change,
-                    'close': ensemble_close.tolist(),
-                    'confidence': 0.6,
-                    'model_weights': {p['name']: w for p, w in zip(valid_predictions, normalized_weights)}
-                }
-        
-        # 调用 Dify 集成工作流
-        if self.dify_enabled and DIFY_CONFIG.get('ensemble_workflow'):
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        f"{DIFY_CONFIG['api_base']}/workflows/{DIFY_CONFIG['ensemble_workflow']}/run",
-                        headers={
-                            "Authorization": f"Bearer {DIFY_CONFIG['api_key']}",
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "inputs": {
-                                'symbol': symbol,
-                                'agent_results': agent_results,
-                                'ensemble': ensemble
-                            },
-                            "response_mode": "blocking",
-                            "user": 'etf-user'
-                        }
-                    )
-                    ensemble_result = response.json()
-                    ensemble['dify_analysis'] = ensemble_result.get('data', {}).get('outputs', {})
-            except Exception:
-                pass
-        
-        return {
-            'agent_results': agent_results,
-            'ensemble': ensemble
-        }
-    
-    @Tool
-    async def _get_prediction(self, symbol: str) -> str:
-        """获取未来价格预测（通过 Dify 统一管理所有模型）"""
-        df = self.fetcher.get_history(symbol)
-        if df.empty:
-            return f"无法获取 {symbol} 的数据"
-        
-        # 通过 Dify 调用所有 Agent
-        results = await self._call_all_dify_agents(symbol, df)
-        
-        report = f"🔮 {symbol} Dify 统一预测结果\n"
-        report += "="*60 + "\n\n"
-        
-        # 各 Agent 结果
-        report += "📊 各模型预测:\n"
-        for key, result in results.get('agent_results', {}).items():
-            if result.get('success', False):
-                output = result.get('result', {}).get('data', {}).get('outputs', {})
-                change = output.get('predicted_change', 0)
-                report += f"  {result.get('name', key)}:\n"
-                report += f"    预测变化: {change:.2%}\n"
-                report += f"    置信度: {output.get('confidence', 0):.2%}\n"
-        
-        # 集成结果
-        ensemble = results.get('ensemble', {})
-        if ensemble.get('success', False):
-            report += f"\n🎯 集成预测结果:\n"
-            report += f"  预测变化: {ensemble.get('predicted_change', 0):.2%}\n"
-            report += f"  置信度: {ensemble.get('confidence', 0):.2%}\n"
-            report += "  模型权重:\n"
-            for model, weight in ensemble.get('model_weights', {}).items():
-                report += f"    {model}: {weight:.1%}\n"
-            
-            if ensemble.get('close'):
-                report += "\n📅 预测价格表 (前10天):\n"
-                dates = [(df.index[-1] + timedelta(days=i+1)).strftime('%Y-%m-%d') 
-                        for i in range(min(10, len(ensemble['close'])))]
-                for i, (d, c) in enumerate(zip(dates, ensemble['close'][:10])):
-                    report += f"  {d}: {c:.3f}\n"
-            
-            if ensemble.get('dify_analysis'):
-                report += f"\n🤖 Dify 综合分析:\n"
-                report += f"  {ensemble['dify_analysis']}\n"
-        
-        report += "\n⚠️ 风险提示: 投资有风险，预测仅供参考。"
-        return report
-    
-    @Tool
-    async def _get_recommendation(self, symbol: str) -> str:
-        """获取投资建议（通过 Dify 统一管理）"""
-        # 先获取预测结果
-        pred_result = await self._get_prediction(symbol)
-        
-        # 通过 Dify Agent 生成建议
-        if self.dify_enabled:
-            try:
-                df = self.fetcher.get_history(symbol)
-                if df.empty:
-                    return f"无法获取 {symbol} 的数据"
-                
-                inputs = {
-                    'symbol': symbol,
-                    'prediction': pred_result,
-                    'last_price': float(df['close'].iloc[-1]),
-                    'ma5': float(df['close'].rolling(5).mean().iloc[-1]),
-                    'ma20': float(df['close'].rolling(20).mean().iloc[-1])
-                }
-                
-                result = await self._call_dify_agent('recommend', inputs)
-                if result.get('success', False):
-                    output = result.get('result', {}).get('data', {}).get('outputs', {})
-                    return f"📈 {symbol} 投资建议 (Dify)\n" + "="*50 + "\n" + str(output)
-            except Exception:
-                pass
-        
-        # 降级：使用现有 advisor
-        df = self.fetcher.get_history(symbol)
-        if df.empty:
-            return f"无法获取 {symbol} 的数据"
-        advice = self.advisor.get_recommendation(symbol, df)
-        return f"📈 {symbol} 投资建议\n" + "="*50 + "\n" + f"建议: {advice['signal']}\n" + f"评分: {advice['score']:.1f}/8\n"
     
     def _get_tools(self):
         """获取工具列表"""
@@ -722,11 +499,7 @@ class ETFAdvisorAgent:
     async def _get_recommendation(self, symbol: str) -> str:
         return await self._get_recommendation_impl(symbol)
     async def _get_recommendation_impl(self, symbol: str) -> str:
-        """获取买入/卖出/持有建议（基于多模型预测）
-        
-        Args:
-            symbol: ETF代码
-        """
+        """获取买入/卖出/持有建议（基于多模型预测）"""
         df = self.fetcher.get_history(symbol)
         if df.empty:
             return f"无法获取 {symbol} 的数据"
@@ -783,14 +556,9 @@ class ETFAdvisorAgent:
         report += f"\n⚠️ 风险提示: 投资有风险，决策需谨慎。"
         return report
 
-        
     @Tool
     async def _get_prediction(self, symbol: str) -> str:
-        """获取未来价格预测（集成GPU本地模型 + LLM + Transformer-LSTM）
-        
-        Args:
-            symbol: ETF代码
-        """
+        """获取未来价格预测（集成GPU本地模型 + LLM + Transformer-LSTM）"""
         df = self.fetcher.get_history(symbol)
         if df.empty:
             return f"无法获取 {symbol} 的数据"
@@ -979,7 +747,6 @@ class ETFAdvisorAgent:
     # ✅ 新增：集成预测工具
     @Tool
     async def _get_ensemble_prediction(self, symbol: str) -> str:
-        # return await self._get_ensemble_prediction_impl(symbol)
         return await self._get_prediction(symbol)
     async def _get_ensemble_prediction_impl(self, symbol: str) -> str:
         """获取双模型集成预测（Transformer + LSTM）

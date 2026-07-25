@@ -6,7 +6,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import uvicorn
-import os,Request
+import os
+from fastapi import Request
 import json
 import hashlib
 from collections import defaultdict
@@ -228,20 +229,6 @@ async def batch_analysis(symbols: List[str]):
                 "prediction": pred if pred.get('success') else None
             })
     return {"status": "success", "results": results}
-
-@app.post("/api/dify/predict", dependencies=[Depends(verify_token)])
-async def dify_predict(request: PredictRequest):
-    """通过 Dify 统一管理所有预测模型"""
-    df = agent.fetcher.get_history(request.symbol)
-    if df.empty:
-        raise HTTPException(404, f"无法获取 {request.symbol} 的数据")
-    
-    results = await agent._call_all_dify_agents(request.symbol, df)
-    return {
-        "symbol": request.symbol,
-        "results": results,
-        "timestamp": datetime.now().isoformat()
-    }
 
 # ✅ LoRA微调端点
 @app.post("/api/lora/finetune", dependencies=[Depends(verify_token)])
