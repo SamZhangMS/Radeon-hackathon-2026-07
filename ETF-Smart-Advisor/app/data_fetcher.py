@@ -1,3 +1,4 @@
+import os
 import akshare as ak
 import yfinance as yf
 import pandas as pd
@@ -6,6 +7,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from .config import CACHE_DIR
 
+script_path = os.path.dirname(os.path.abspath(__file__))
+raw_data_path=f'{script_path}/../data/1D'
 
 class ETFDataFetcher:
     """ETF数据获取器"""
@@ -35,13 +38,6 @@ class ETFDataFetcher:
     
     def get_history(self, symbol: str, period: str = "1y") -> pd.DataFrame:
         """获取历史数据"""
-        try:
-            ticker = yf.Ticker(f"{symbol}.SS" if symbol.startswith('6') else f"{symbol}.SZ")
-            df = ticker.history(period=period)
-            if not df.empty:
-                return df
-        except:
-            pass
         
         # 备用方案：使用akshare
         try:
@@ -54,21 +50,39 @@ class ETFDataFetcher:
             )
             if not df.empty:
                 df = df.rename(columns={
-                    '日期': 'Date',
-                    '开盘': 'Open',
-                    '收盘': 'Close',
-                    '最高': 'High',
-                    '最低': 'Low',
-                    '成交量': 'Volume'
+                    '日期': 'date',
+                    '开盘': 'open',
+                    '收盘': 'close',
+                    '最高': 'high',
+                    '最低': 'low',
+                    '成交量': 'volume'
                 })
-                df['Date'] = pd.to_datetime(df['Date'])
-                df.set_index('Date', inplace=True)
+                df['Date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
                 return df
         except:
             pass
-        
+
+        try:
+            raw_data_file_path=raw_data_path+'/'+symbol+'.txt'
+            df_raw=pd.read_csv(raw_data_file_path
+                ,encoding='gb2312',
+                    skipfooter=1,
+                    names=['date','open', 'high', 'low', 'close', 'volume', 'money'],
+                    dtype={'date': str,'open': float,'high': float, 'low': float, 'close': float}
+                    ,engine='python')
+            df_raw['date'] = pd.to_datetime(df_raw['date'].astype(str) , format='%Y/%m/%d')
+            return df_raw
+        except Exception as e:
+            pass
+            
         return pd.DataFrame()
     def get_etf_list(self) -> List[str]:
         """获取默认ETF列表"""
-        from .config import DEFAULT_ETF_POOL
-        return DEFAULT_ETF_POOL
+        # from .config import DEFAULT_ETF_POOL
+        # return DEFAULT_ETF_POOL
+        stock_list = [
+                p.stem for p in Path(raw_data_path).iterdir() 
+                if p.is_file()
+                    ]
+        return stock_list

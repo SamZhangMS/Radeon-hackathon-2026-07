@@ -24,9 +24,9 @@ def benchmark_gpu_optimization():
     
     # 2. 测试数据加载
     fetcher = ETFDataFetcher()
-    df = fetcher.get_history("510300", "1y")
+    df = fetcher.get_history("SH510300", "1y")
     
-    print(f"\n📊 测试数据: 510300, {len(df)} 条记录")
+    print(f"\n📊 测试数据: SH510300, {len(df)} 条记录")
     
     # 3. ✅ 实际推理测试（而非模拟）
     print("\n⚡ 实际推理速度测试:")
@@ -132,7 +132,7 @@ def benchmark_lora_optimization():
     print("\n⚡ 推理速度对比 (LoRA vs 无LoRA):")
     
     fetcher = ETFDataFetcher()
-    df = fetcher.get_history("510300", "1y")
+    df = fetcher.get_history("SH510300", "1y")
     
     if not df.empty:
         # 无 LoRA 推理
@@ -174,8 +174,8 @@ def benchmark_lora_optimization():
         
         # 准备小样本数据
         sample_data = pd.DataFrame([
-            {"instruction": "分析 510300", "output": "510300 技术分析..."},
-            {"instruction": "建议 510050", "output": "510050 投资建议..."},
+            {"instruction": "分析 SH510300", "output": "SH510300 技术分析..."},
+            {"instruction": "建议 SH510050", "output": "SH510050 投资建议..."},
         ])
         
         start = time.time()
@@ -224,27 +224,27 @@ async def benchmark_full_pipeline():
         
         # 行情查询
         start = time.time()
-        quote_result = await agent._get_quote("510300")
+        quote_result = await agent._get_quote("SH510300")
         quote_time = time.time() - start
         print(f"   行情查询时间: {quote_time*1000:.2f}ms")
         print(f"   结果预览: {quote_result[:100]}...")
         
         # 技术分析
         start = time.time()
-        analysis_result = await agent._analyze_technical("510300")
+        analysis_result = await agent._analyze_technical("SH510300")
         analysis_time = time.time() - start
         print(f"   技术分析时间: {analysis_time*1000:.2f}ms")
         
         # 预测
         start = time.time()
-        pred_result = await agent._get_prediction("510300")
+        pred_result = await agent._get_prediction("SH510300")
         pred_time = time.time() - start
         print(f"   预测时间: {pred_time*1000:.2f}ms")
         
         # 3. 完整分析
         print("\n📊 完整分析测试:")
         start = time.time()
-        complete_result = await agent._analyze_complete("510300")
+        complete_result = await agent._analyze_complete("SH510300")
         complete_time = time.time() - start
         print(f"   完整分析时间: {complete_time*1000:.2f}ms")
         print(f"   结果预览: {complete_result[:200]}...")

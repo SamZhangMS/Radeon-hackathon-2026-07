@@ -192,10 +192,10 @@ class ETFAdvisorAgent:
         return (
             f"📈 {symbol} 历史数据 ({period})\n"
             f"交易日: {len(df)} 天\n"
-            f"最新价: {df['Close'].iloc[-1]:.3f}\n"
-            f"最高价: {df['High'].max():.3f}\n"
-            f"最低价: {df['Low'].min():.3f}\n"
-            f"均价: {df['Close'].mean():.3f}"
+            f"最新价: {df['close'].iloc[-1]:.3f}\n"
+            f"最高价: {df['high'].max():.3f}\n"
+            f"最低价: {df['low'].min():.3f}\n"
+            f"均价: {df['close'].mean():.3f}"
         )
     
     @Tool

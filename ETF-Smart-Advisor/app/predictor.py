@@ -237,10 +237,19 @@ class ETFPricePredictor:
         
         # 生成日期
         last_date = df.index[-1]
+        if isinstance(last_date, (int, float)):
+            try:
+                last_date = pd.to_datetime(last_date, unit='s')
+            except:
+                last_date = datetime.now()
+        elif not isinstance(last_date, pd.Timestamp):
+            last_date = datetime.now()
+    
+
         future_dates = [last_date + timedelta(days=i+1) for i in range(self.pred_length)]
         
         # 计算置信区间
-        recent_vol = df['Close'].pct_change().std() * np.sqrt(252)
+        recent_vol = df['close'].pct_change().std() * np.sqrt(252)
         confidence = 1.96 * recent_vol * np.sqrt(self.pred_length / 252)
         
         close_prices = pred_ensemble[:, 3]
@@ -313,7 +322,7 @@ class ETFPricePredictor:
     
     def prepare_data(self, df: pd.DataFrame) -> torch.Tensor:
         """准备输入数据"""
-        features = df[['Open', 'High', 'Low', 'Close', 'Volume']].values.astype(np.float32)
+        features = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
         
         # 标准化
         means = features.mean(axis=0)
@@ -343,7 +352,8 @@ class ETFPricePredictor:
         
         # 准备数据
         data_tensor = self.prepare_data(df)
-        data_tensor = data_tensor.to(DEVICE)
+        model_dtype = next(self.model.parameters()).dtype
+        data_tensor = data_tensor.to(DEVICE).to(model_dtype)
         
         # 预测
         self.model.eval()
@@ -358,10 +368,18 @@ class ETFPricePredictor:
         
         # 生成日期
         last_date = df.index[-1]
+        if isinstance(last_date, (int, float)):
+            try:
+                last_date = pd.to_datetime(last_date, unit='s')
+            except:
+                last_date = datetime.now()
+        elif not isinstance(last_date, pd.Timestamp):
+            last_date = datetime.now()
+        
         future_dates = [last_date + timedelta(days=i+1) for i in range(self.pred_length)]
         
         # 计算置信区间
-        recent_vol = df['Close'].pct_change().std() * np.sqrt(252)
+        recent_vol = df['close'].pct_change().std() * np.sqrt(252)
         confidence = 1.96 * recent_vol * np.sqrt(self.pred_length / 252)
         
         close_prices = pred_denorm[:, 3]
@@ -386,7 +404,7 @@ class ETFPricePredictor:
             if len(df) < self.seq_length + self.pred_length:
                 continue
             
-            data = df[['Open', 'High', 'Low', 'Close', 'Volume']].values.astype(np.float32)
+            data = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
             means = data.mean(axis=0)
             stds = data.std(axis=0)
             stds[stds == 0] = 1
@@ -443,7 +461,7 @@ class ETFPricePredictor:
             if len(df) < self.seq_length + self.pred_length:
                 continue
             
-            data = df[['Open', 'High', 'Low', 'Close', 'Volume']].values.astype(np.float32)
+            data = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
             means = data.mean(axis=0)
             stds = data.std(axis=0)
             stds[stds == 0] = 1

@@ -202,7 +202,7 @@ class InvestmentAdvisor:
     
     def _calculate_indicators(self, df: pd.DataFrame) -> Dict:
         """计算技术指标"""
-        close = df['Close']
+        close = df['close']
         
         # 移动平均线
         ma5 = close.rolling(5).mean().iloc[-1]
@@ -257,14 +257,14 @@ class InvestmentAdvisor:
     
     def _assess_risk(self, df: pd.DataFrame) -> str:
         """评估风险等级"""
-        returns = df['Close'].pct_change().dropna()
+        returns = df['close'].pct_change().dropna()
         
         # 波动率
         volatility = returns.std() * np.sqrt(252)
         
         # 最大回撤
-        cummax = df['Close'].cummax()
-        drawdown = (cummax - df['Close']) / cummax
+        cummax = df['close'].cummax()
+        drawdown = (cummax - df['close']) / cummax
         max_drawdown = drawdown.max()
         
         if volatility < 0.2 and abs(max_drawdown) < 0.15:

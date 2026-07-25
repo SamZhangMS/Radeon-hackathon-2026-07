@@ -38,6 +38,20 @@ source etfadvisorvenv/bin/activate
 echo ""
 echo "⬆️ Upgrading pip..."
 pip install --upgrade pip
+pip install typing_extensions numpy
+pip install pandas pyarrow --upgrade
+pip install fastparquet
+pip install cython
+pip install akshare
+pip install ta-lib
+pip install baostock
+pip install xgboost
+pip install catboost
+pip install optuna
+pip install requests
+pip install robust_json_parser
+pip install pyqlib
+pip install -r ../work/lib/Kronos/requirements.txt
 
 # 5. Install PyTorch dependencies
 echo ""
@@ -92,8 +106,8 @@ if torch.cuda.is_available():
 echo ""
 echo "📦 Installing uv and vLLM (ROCm version)..."
 pip install uv
-uv pip install vllm==0.18.0+rocm700 \
-    --extra-index-url https://wheels.vllm.ai/rocm/0.18.0/rocm700
+uv pip install vllm --upgrade \
+    --extra-index-url https://wheels.vllm.ai/rocm/
 
 # 9. Install other project dependencies
 echo ""

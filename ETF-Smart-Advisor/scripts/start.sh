@@ -100,7 +100,7 @@ vllm serve "$MODEL_PATH" \
     --trust-remote-code \
     --gpu-memory-utilization=0.80 \
     --max-num-seqs=16 \
-    --dtype=bfloat16 \
+    --dtype=float16  \
     $QUANTIZATION_ARG \
     --max-model-len="$MAX_MODEL_LEN" &
 
