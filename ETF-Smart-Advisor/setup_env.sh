@@ -54,7 +54,7 @@ pip install pyqlib
 pip install -r ../work/lib/Kronos/requirements.txt
 
 # 5. Install PyTorch dependencies
-echo ""
+echo "test"
 echo "📦 Installing PyTorch dependencies..."
 pip install typing_extensions numpy
 
