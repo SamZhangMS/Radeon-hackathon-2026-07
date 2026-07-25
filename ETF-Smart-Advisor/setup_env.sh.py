@@ -108,13 +108,14 @@ mkdir -p data/models data/cache
 
 # 11. Check and download Qwen model
 echo ""
-echo "📥 Checking Qwen3-30B-A3B model..."
-if [ ! -d "./models/Qwen3-30B-A3B" ]; then
-    echo "  Model not found, downloading (approx 60GB)..."
+echo "📥 Checking Qwen3-30B-A3B-GPTQ-Int4..."
+if [ ! -d "./models/Qwen3-30B-A3B-GPTQ-Int4" ]; then
+    echo "  Model not found, downloading ..."
     mkdir -p models
     pip install modelscope
     # modelscope download --model Qwen/Qwen3-30B-A3B --local_dir ./models/Qwen3-30B-A3B
-    modelscope download --model Qwen/Qwen3-30B-A3B-AWQ --local_dir ./models/Qwen3-30B-A3B-AWQ
+    # modelscope download --model Qwen/Qwen3-30B-A3B-AWQ --local_dir ./models/Qwen3-30B-A3B-AWQ
+    modelscope download --model Qwen/Qwen3-30B-A3B-GPTQ-Int4 --local_dir ./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4
 else
     echo "  ✅ Model already exists"
 fi

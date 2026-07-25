@@ -58,25 +58,41 @@ if command -v rocm-smi &> /dev/null; then
 fi
 
 # 7. Check Qwen model
+# 模型本地路径
+MODEL_PATH="./models/Qwen3-30B-A3B-GPTQ-Int4"
+# 模型服务名称 (可自定义)
+MODEL_SERVED_NAME="Qwen3-30B-A3B-GPTQ-Int4"
+# ModelScope 上的模型ID
+MODEL_SCOPE_ID="Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+# 是否使用量化 (awq/gptq/etc)，若无量化留空 ""
+QUANTIZATION="awq"
+# 最大模型长度
+MAX_MODEL_LEN=8192
 echo ""
 echo "🔍 Checking Qwen model..."
-MODEL_PATH="./models/Qwen3-30B-A3B"
 if [ ! -d "$MODEL_PATH" ]; then
-    echo "  ❌ Qwen3-30B-A3B model not found!"
-    echo "  Please run: modelscope download --model Qwen/Qwen3-30B-A3B --local_dir ./models/Qwen3-30B-A3B"
+    echo "  ❌ Model not found at: $MODEL_PATH"
+    echo "  Please run: modelscope download --model $MODEL_SCOPE_ID --local_dir $MODEL_PATH"
     exit 1
 else
-    echo "  ✅ Model exists"
+    echo "  ✅ Model exists at: $MODEL_PATH"
 fi
 
 # 8. Start vLLM with optimized settings
 echo ""
 echo "🚀 Starting vLLM inference service..."
-echo "  Using GPU memory utilization: 0.80 (reduced to avoid OOM)"
+echo "  Using model: $MODEL_PATH"
+echo "  GPU memory utilization: 0.80"
+
+# 构建量化参数 (如果定义了 QUANTIZATION 且不为空)
+QUANTIZATION_ARG=""
+if [ -n "$QUANTIZATION" ]; then
+    QUANTIZATION_ARG="--quantization $QUANTIZATION"
+fi
 
 VLLM_USE_TRITON_FLASH_ATTN=0 \
 vllm serve "$MODEL_PATH" \
-    --served-model-name Qwen3-30B-A3B \
+    --served-model-name "$MODEL_SERVED_NAME" \
     --api-key abc-123 \
     --port 8000 \
     --enable-auto-tool-choice \
@@ -85,8 +101,8 @@ vllm serve "$MODEL_PATH" \
     --gpu-memory-utilization=0.80 \
     --max-num-seqs=16 \
     --dtype=bfloat16 \
-    --quantization=awq \
-    --max-model-len=8192 &
+    $QUANTIZATION_ARG \
+    --max-model-len="$MAX_MODEL_LEN" &
 
 
 VLLM_PID=$!
