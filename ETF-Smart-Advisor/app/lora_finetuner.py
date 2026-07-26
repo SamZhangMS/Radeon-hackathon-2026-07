@@ -31,7 +31,7 @@ from .config import LLM_CONFIG
 class FinetuneConfig:
     """LoRA 微调配置"""
     def __init__(self):
-        self.model_path = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B-GPTQ-Int4")
+        self.model_path = LLM_CONFIG.get("model_name", "Qwen/mapfinben-qwen35-9b")
         self.output_dir = "./data/models/lora_etf_advisor"
         self.max_length = 1024
         self.batch_size = 1
@@ -59,7 +59,7 @@ class ETFAdvisorLoRATuner:
         config: Optional[FinetuneConfig] = None
     ):
         if base_model_name is None:
-            base_model_name = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B-GPTQ-Int4")
+            base_model_name = LLM_CONFIG.get("model_name", "Qwen/mapfinben-qwen35-9b")
         self.base_model_name = base_model_name
         self.device_map = device_map
         self.config = config or FinetuneConfig()

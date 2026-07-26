@@ -64,13 +64,13 @@ echo ""
 echo "🔍 Checking Qwen model..."
 
 # 模型本地路径
-MODEL_PATH="./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+MODEL_PATH="./models/Qwen/mapfinben-qwen35-9b"
 # LoRA 适配器路径
 LORA_PATH="./data/models/lora_etf_advisor"
 # 模型服务名称
-MODEL_SERVED_NAME="Qwen3-30B-A3B-GPTQ-Int4"
+MODEL_SERVED_NAME="mapfinben-qwen35-9b"
 # ModelScope 上的模型ID
-MODEL_SCOPE_ID="Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+MODEL_SCOPE_ID="Qwen/mapfinben-qwen35-9b"
 # 量化类型
 QUANTIZATION="gptq"
 # 最大模型长度

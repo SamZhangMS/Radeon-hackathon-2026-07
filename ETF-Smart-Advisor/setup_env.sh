@@ -122,16 +122,34 @@ mkdir -p data/models data/cache
 
 # 11. Check and download Qwen model
 echo ""
-echo "📥 Checking Qwen3-30B-A3B-GPTQ-Int4..."
-MODEL_PATH="./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4"
-if [ ! -d "$MODEL_PATH" ]; then
-    echo "  Model not found, downloading ..."
-    mkdir -p models/Qwen
-    pip install modelscope -q
-    modelscope download --model Qwen/Qwen3-30B-A3B-GPTQ-Int4 --local_dir "$MODEL_PATH"
-else
-    echo "  ✅ Model already exists"
-fi
+# echo "📥 Checking Qwen3-30B-A3B-GPTQ-Int4..."
+# MODEL_PATH="./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4"
+# if [ ! -d "$MODEL_PATH" ]; then
+#     echo "  Model not found, downloading ..."
+#     mkdir -p models/Qwen
+#     pip install modelscope -q
+#     modelscope download --model Qwen/Qwen3-30B-A3B-GPTQ-Int4 --local_dir "$MODEL_PATH"
+# else
+#     echo "  ✅ Model already exists"
+# fi
+
+pip install huggingface_hub
+
+# 下载完整模型到本地
+
+from huggingface_hub import snapshot_download
+
+model_id = 'Ljy2004/mapfinben-qwen35-9b-merged-unified-v3'
+local_dir = './models/Qwen/mapfinben-qwen35-9b'
+
+print(f'📥 Downloading: {model_id}')
+
+snapshot_download(
+    repo_id=model_id,
+    local_dir=local_dir,
+    local_dir_use_symlinks=False,
+    resume_download=True,
+    ignore_patterns=['*.h5', '*.ot', '*.msgpack'] )
 
 # ============================================================
 # 12. LoRA 调优（使用 ETF 历史数据）
