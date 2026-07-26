@@ -36,7 +36,7 @@ source etfadvisorvenv/bin/activate
 
 # 4. Upgrade pip
 echo ""
-echo "⬆️ Upgrading pip..."
+# echo "⬆️ Upgrading pip..."
 pip install --upgrade pip
 # pip install typing_extensions numpy
 # pip install pandas pyarrow --upgrade
