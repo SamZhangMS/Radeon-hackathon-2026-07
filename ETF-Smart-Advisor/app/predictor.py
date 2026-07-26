@@ -223,7 +223,7 @@ class ETFPricePredictor:
     def __init__(self, base_model_name: Optional[str] = None):
         # 
         if base_model_name is None:
-            base_model_name = LLM_CONFIG.get("model_name", "Qwen/Qwen3-30B-A3B-GPTQ-Int4")
+            base_model_name = LLM_CONFIG.get("model_name", "Qwen/mapfinben-qwen35-9b")
         self.base_model_name = base_model_name
 
         self.model = TimeSeriesTransformer(

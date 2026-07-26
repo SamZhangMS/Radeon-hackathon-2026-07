@@ -15,11 +15,11 @@ DEVICE = "cuda" if os.environ.get("ROCM_VISIBLE_DEVICES") else "cpu"
 
 VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
 VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://localhost:8000/v1")
-VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/Qwen3-30B-A3B-GPTQ-Int4")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", "Qwen/mapfinben-qwen35-9b")
 
 # LLM配置
 LLM_CONFIG = {
-    "model_name": "Qwen/Qwen3-30B-A3B-GPTQ-Int4",
+    "model_name": "Qwen/mapfinben-qwen35-9b",
     "api_base": "http://localhost:8000/v1",
     "api_key": "abc-123",
 }
