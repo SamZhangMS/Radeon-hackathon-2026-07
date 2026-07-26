@@ -38,20 +38,20 @@ source etfadvisorvenv/bin/activate
 echo ""
 echo "⬆️ Upgrading pip..."
 pip install --upgrade pip
-pip install typing_extensions numpy
-pip install pandas pyarrow --upgrade
-pip install fastparquet
-pip install cython
-pip install akshare
-pip install ta-lib
-pip install baostock
-pip install xgboost
-pip install catboost
-pip install optuna
-pip install requests
-pip install robust_json_parser
-pip install pyqlib
-pip install -r ../work/lib/Kronos/requirements.txt
+# pip install typing_extensions numpy
+# pip install pandas pyarrow --upgrade
+# pip install fastparquet
+# pip install cython
+# pip install akshare
+# pip install ta-lib
+# pip install baostock
+# pip install xgboost
+# pip install catboost
+# pip install optuna
+# pip install requests
+# pip install robust_json_parser
+# pip install pyqlib
+# pip install -r ../work/lib/Kronos/requirements.txt
 
 # 5. Install PyTorch dependencies
 echo ""
