@@ -135,13 +135,14 @@ mkdir -p data/models data/cache
 # fi
 
 pip install huggingface_hub
-
+MODEL_PATH="./models/Qwen/mapfinben-qwen35-9b"
 # 下载完整模型到本地
 python -c "
 from huggingface_hub import snapshot_download
 
 model_id = 'Ljy2004/mapfinben-qwen35-9b-merged-unified-v3'
-local_dir = './models/Qwen/mapfinben-qwen35-9b'
+# local_dir = './models/Qwen/mapfinben-qwen35-9b'
+local_dir = os.environ.get('MODEL_PATH', './models/Qwen/mapfinben-qwen35-9b')
 
 print(f'📥 Downloading: {model_id}')
 
@@ -161,15 +162,16 @@ echo "🔧 Running LoRA fine-tuning on Qwen with ETF data..."
 # 检查数据目录是否存在
 if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
     echo "  ✅ ETF data found, starting fine-tuning..."
-    
+    rm -rf loraenv
+    python3 -m venv loraenv
+    source loraenv/bin/activate
+    pip install --upgrade pip
     # 设置环境变量
     export FINETUNE_MODEL_PATH="$MODEL_PATH"
     export FINETUNE_OUTPUT_DIR="./data/models/lora_etf_advisor"
-    
+    export FINETUNE_DATA_DIR="./data/1D"
     # 安装额外依赖
-    pip install optimum==1.20.0 -q
-    pip install bitsandbytes
-    pip install scikit-learn datasets peft trl -q
+    pip install transformers huggingface-hub tokenizers optimum accelerate peft trl datasets bitsandbytes scikit-learn pandas numpy
 
     # 运行调优脚本
     # PYTHONPATH=. python scripts/finetune_qwen.py
@@ -234,5 +236,6 @@ echo "✅ Environment setup complete, starting service..."
 echo "=============================================="
 echo ""
 
+source etfadvisorvenv/bin/activate
 # Call start.sh to launch the service
 bash scripts/start.sh
