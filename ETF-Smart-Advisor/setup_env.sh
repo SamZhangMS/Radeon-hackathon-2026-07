@@ -139,6 +139,7 @@ MODEL_PATH="./models/Qwen/mapfinben-qwen35-9b"
 # 下载完整模型到本地
 python -c "
 from huggingface_hub import snapshot_download
+import os
 
 model_id = 'Ljy2004/mapfinben-qwen35-9b-merged-unified-v3'
 # local_dir = './models/Qwen/mapfinben-qwen35-9b'
