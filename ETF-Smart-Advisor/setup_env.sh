@@ -153,7 +153,8 @@ if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
     pip install scikit-learn datasets peft trl -q
 
     # 运行调优脚本
-    PYTHONPATH=. python scripts/finetune_qwen.py
+    # PYTHONPATH=. python scripts/finetune_qwen.py
+    PYTHONPATH=. python -m app.lora_finetuner --data_dir ./data/1D --use_4bit
     
     # 检查调优是否成功
     if [ -f "./data/models/lora_etf_advisor/adapter_model.safetensors" ]; then
