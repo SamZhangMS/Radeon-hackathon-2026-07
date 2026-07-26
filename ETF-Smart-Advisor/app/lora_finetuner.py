@@ -192,7 +192,7 @@ class ETFAdvisorLoRATuner:
         return result
 
     def _calculate_technical_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
-        """计算技术指标"""
+        """计算技术指标，带有除零保护"""
         df = df.copy()
         close = df['close']
         volume = df['volume']
@@ -212,15 +212,21 @@ class ETFAdvisorLoRATuner:
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rs = gain / loss
+        # 防止除零
+        rs = gain / loss.where(loss != 0, 1)  # 如果 loss 为 0，使用 1 代替
         df['rsi'] = 100 - (100 / (1 + rs))
+        df['rsi'] = df['rsi'].fillna(50)  # 用中性值填充 NaN
         
         # 布林带
         df['bb_middle'] = close.rolling(20).mean()
         bb_std = close.rolling(20).std()
         df['bb_upper'] = df['bb_middle'] + 2 * bb_std
         df['bb_lower'] = df['bb_middle'] - 2 * bb_std
-        df['bb_position'] = (close - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'])
+        # 防止除零
+        bb_range = df['bb_upper'] - df['bb_lower']
+        df['bb_position'] = (close - df['bb_lower']) / bb_range.where(bb_range != 0, 1)
+        df['bb_position'] = df['bb_position'].clip(0, 1)  # 限制在 0-1 范围
+        df['bb_position'] = df['bb_position'].fillna(0.5)  # 用中性值填充 NaN
         
         # MACD
         exp1 = close.ewm(span=12, adjust=False).mean()
@@ -229,9 +235,15 @@ class ETFAdvisorLoRATuner:
         df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
         df['macd_histogram'] = df['macd'] - df['macd_signal']
         
-        # 成交量指标
+        # 成交量指标 - 防止除零
         df['volume_ma5'] = volume.rolling(5).mean()
-        df['volume_ratio'] = volume / df['volume_ma5']
+        # 如果 volume_ma5 为 0，使用 1 代替，避免除零
+        df['volume_ratio'] = volume / df['volume_ma5'].where(df['volume_ma5'] != 0, 1)
+        df['volume_ratio'] = df['volume_ratio'].fillna(1)  # 用 1 填充 NaN
+        
+        # 计算历史波动率（年化）
+        df['volatility'] = df['price_change_1d'].rolling(30).std() * np.sqrt(252)
+        df['volatility'] = df['volatility'].fillna(0)
         
         return df
 
@@ -242,6 +254,7 @@ class ETFAdvisorLoRATuner:
         
         # 按 ETF 分组处理
         for symbol, group in df.groupby('symbol'):
+            print(f"  处理 {symbol}...")
             group = group.sort_values('date')
             group = self._calculate_technical_indicators(group)
             
@@ -253,84 +266,129 @@ class ETFAdvisorLoRATuner:
                 continue
             
             # 生成训练样本
+            samples_per_etf = 0
             for i in range(60, len(group) - 30, 5):
                 if i + 30 >= len(group):
                     break
                 
-                window = group.iloc[i-60:i]  # 过去60天的数据
-                future = group.iloc[i:i+30]  # 未来30天的数据
-                
-                current_price = window['close'].iloc[-1]
-                future_price = future['close'].iloc[-1]
-                future_change = (future_price - current_price) / current_price
-                
-                # 获取当前指标
-                ma5 = window['ma5'].iloc[-1]
-                ma20 = window['ma20'].iloc[-1]
-                ma60 = window['ma60'].iloc[-1]
-                rsi = window['rsi'].iloc[-1]
-                bb_pos = window['bb_position'].iloc[-1]
-                macd = window['macd'].iloc[-1]
-                macd_signal = window['macd_signal'].iloc[-1]
-                volume_ratio = window['volume_ratio'].iloc[-1]
-                
-                # 计算历史波动率
-                hist_vol = window['price_change_1d'].std() * np.sqrt(252)
-                
-                # 判断趋势
-                trend = "上涨" if ma5 > ma20 > ma60 else "下跌" if ma5 < ma20 < ma60 else "震荡"
-                
-                instruction = f"""分析 {symbol} ETF 的技术指标并预测未来走势。
+                try:
+                    window = group.iloc[i-60:i]  # 过去60天的数据
+                    future = group.iloc[i:i+30]  # 未来30天的数据
+                    
+                    current_price = window['close'].iloc[-1]
+                    future_price = future['close'].iloc[-1]
+                    future_change = (future_price - current_price) / current_price if current_price != 0 else 0
+                    
+                    # 获取当前指标
+                    ma5 = window['ma5'].iloc[-1]
+                    ma20 = window['ma20'].iloc[-1]
+                    ma60 = window['ma60'].iloc[-1]
+                    rsi = window['rsi'].iloc[-1]
+                    bb_pos = window['bb_position'].iloc[-1]
+                    macd = window['macd'].iloc[-1]
+                    macd_signal = window['macd_signal'].iloc[-1]
+                    volume_ratio = window['volume_ratio'].iloc[-1]
+                    
+                    # 检查是否有 NaN 值
+                    if pd.isna(rsi) or pd.isna(bb_pos):
+                        continue
+                    
+                    # 计算历史波动率（年化）
+                    hist_vol = window['price_change_1d'].std() * np.sqrt(252)
+                    if pd.isna(hist_vol):
+                        hist_vol = 0
+                    
+                    # 判断趋势
+                    if ma5 > ma20 > ma60:
+                        trend = "上涨"
+                    elif ma5 < ma20 < ma60:
+                        trend = "下跌"
+                    else:
+                        trend = "震荡"
+                    
+                    # RSI 状态
+                    if rsi > 70:
+                        rsi_status = "超买"
+                    elif rsi < 30:
+                        rsi_status = "超卖"
+                    else:
+                        rsi_status = "中性"
+                    
+                    # 布林带状态
+                    if bb_pos > 0.8:
+                        bb_status = "上轨附近"
+                    elif bb_pos < 0.2:
+                        bb_status = "下轨附近"
+                    else:
+                        bb_status = "中轨附近"
+                    
+                    # MACD 状态
+                    if macd > macd_signal:
+                        macd_status = "金叉"
+                    elif macd < macd_signal:
+                        macd_status = "死叉"
+                    else:
+                        macd_status = "持平"
+                    
+                    instruction = f"""分析 {symbol} ETF 的技术指标并预测未来走势。
 
 当前价格: {current_price:.4f}
 5日均线: {ma5:.4f} ({'高于' if ma5 > ma20 else '低于'}20日均线)
 20日均线: {ma20:.4f}
 60日均线: {ma60:.4f}
-RSI(14): {rsi:.1f} ({'超买' if rsi > 70 else '超卖' if rsi < 30 else '中性'})
-布林带位置: {bb_pos:.2f} ({'上轨附近' if bb_pos > 0.8 else '下轨附近' if bb_pos < 0.2 else '中轨附近'})
-MACD: {macd:.4f} ({'金叉' if macd > macd_signal else '死叉' if macd < macd_signal else '持平'})
+RSI(14): {rsi:.1f} ({rsi_status})
+布林带位置: {bb_pos:.2f} ({bb_status})
+MACD: {macd:.4f} ({macd_status})
 成交量比率: {volume_ratio:.2f}
 历史波动率(年化): {hist_vol:.2%}
 
 请基于以上技术指标，判断当前趋势并给出投资建议。"""
 
-                # 确定信号
-                if future_change > 0.05:
-                    signal, confidence = "强烈买入", "高"
-                    target_mult = 1.08
-                elif future_change > 0.02:
-                    signal, confidence = "买入", "中高"
-                    target_mult = 1.05
-                elif future_change > -0.02:
-                    signal, confidence = "持有", "中"
-                    target_mult = 1.01
-                elif future_change > -0.05:
-                    signal, confidence = "谨慎持有", "中低"
-                    target_mult = 0.97
-                else:
-                    signal, confidence = "卖出", "高"
-                    target_mult = 0.92
-                
-                # 结合技术指标调整建议
-                if rsi > 70 and future_change > 0:
-                    signal = "观望"  # 超买区域不建议追高
-                elif rsi < 30 and future_change < 0:
-                    signal = "关注买入机会"  # 超卖区域可考虑买入
-                
-                output = f"""投资建议: {signal}
+                    # 确定信号
+                    if future_change > 0.05:
+                        signal, confidence = "强烈买入", "高"
+                        target_mult = 1.08
+                    elif future_change > 0.02:
+                        signal, confidence = "买入", "中高"
+                        target_mult = 1.05
+                    elif future_change > -0.02:
+                        signal, confidence = "持有", "中"
+                        target_mult = 1.01
+                    elif future_change > -0.05:
+                        signal, confidence = "谨慎持有", "中低"
+                        target_mult = 0.97
+                    else:
+                        signal, confidence = "卖出", "高"
+                        target_mult = 0.92
+                    
+                    # 结合技术指标调整建议
+                    if rsi > 70 and future_change > 0:
+                        signal = "观望"  # 超买区域不建议追高
+                        confidence = "中"
+                    elif rsi < 30 and future_change < 0:
+                        signal = "关注买入机会"  # 超卖区域可考虑买入
+                        confidence = "中高"
+                    
+                    output = f"""投资建议: {signal}
 信心程度: {confidence}
 目标价: {current_price * target_mult:.4f} (预期收益: {future_change:.2%})
 止损价: {current_price * 0.95:.4f}
 技术面总结: 当前趋势{trend}，RSI{rsi:.1f}，{'建议等待回调' if rsi > 70 and future_change > 0 else '可逢低布局' if rsi < 30 else '维持现有仓位'}
 风险提示: 投资有风险，请根据自身风险承受能力做出决策。"""
 
-                training_samples.append({
-                    "instruction": instruction,
-                    "input": "",
-                    "output": output
-                })
+                    training_samples.append({
+                        "instruction": instruction,
+                        "input": "",
+                        "output": output
+                    })
+                    samples_per_etf += 1
+                    
+                except Exception as e:
+                    continue
+            
+            print(f"    ✅ {symbol}: 生成 {samples_per_etf} 个样本")
         
-        print(f"✅ 生成 {len(training_samples)} 个训练样本")
+        print(f"✅ 共生成 {len(training_samples)} 个训练样本")
         
         if len(training_samples) == 0:
             raise ValueError("没有生成任何训练样本，请检查数据质量")
