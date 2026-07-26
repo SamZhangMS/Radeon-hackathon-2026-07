@@ -22,7 +22,7 @@ from transformers import (
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from trl import SFTTrainer
 from datasets import Dataset
-from config import LLM_CONFIG
+from .config import LLM_CONFIG
 
 # ============================================================
 # 配置
