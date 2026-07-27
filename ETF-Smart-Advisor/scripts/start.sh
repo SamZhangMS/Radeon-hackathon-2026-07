@@ -167,7 +167,6 @@ if [ "$USE_VLLM" = true ]; then
     echo "  GPU memory utilization: 0.85"
     echo "  Port: 8000"
     
-
     # 启动 vLLM（在后台运行）
     VLLM_USE_TRITON_FLASH_ATTN=0 \
     vllm serve "$MODEL_PATH" \
