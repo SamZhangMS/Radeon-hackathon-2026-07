@@ -179,7 +179,6 @@ if [ "$USE_VLLM" = true ]; then
         --max-num-seqs=8 \
         --dtype=auto \
         --max-model-len=4096 \
-        --swap-space=4 \   
         $LORA_ARG \
         > vllm.log 2>&1 &
     
