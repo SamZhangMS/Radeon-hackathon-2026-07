@@ -167,20 +167,7 @@ if [ "$USE_VLLM" = true ]; then
     echo "  GPU memory utilization: 0.85"
     echo "  Port: 8000"
     
-    # 检测模型是否支持 GPTQ，如果不支持则不用量化参数
-    QUANTIZATION_ARG=""
-    if [ -f "$MODEL_PATH/config.json" ] && grep -q "quantization" "$MODEL_PATH/config.json"; then
-        echo "  ✅ Model supports quantization"
-        QUANTIZATION_ARG="--quantization gptq"
-    else
-        echo "  ℹ️ Model does not support GPTQ, using default"
-    fi
-    
-    # 构建 LoRA 参数
-    LORA_ARG=""
-    if [ -n "$LORA_ADAPTER_PATH" ]; then
-        LORA_ARG="--enable-lora --lora-modules qwen_lora=$LORA_ADAPTER_PATH"
-    fi
+
     
     # 启动 vLLM（在后台运行）
     VLLM_USE_TRITON_FLASH_ATTN=0 \
