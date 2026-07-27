@@ -154,42 +154,42 @@ snapshot_download(
     resume_download=True,
     ignore_patterns=['*.h5', '*.ot', '*.msgpack'] )
 "
-# ============================================================
-# 12. LoRA 调优（使用 ETF 历史数据）
-# ============================================================
-echo ""
-echo "🔧 Running LoRA fine-tuning on Qwen with ETF data..."
+# # ============================================================
+# # 12. LoRA 调优（使用 ETF 历史数据）
+# # ============================================================
+# echo ""
+# echo "🔧 Running LoRA fine-tuning on Qwen with ETF data..."
 
-# 检查数据目录是否存在
-if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
-    echo "  ✅ ETF data found, starting fine-tuning..."
-    rm -rf loraenv
-    python3 -m venv loraenv
-    source loraenv/bin/activate
-    pip install --upgrade pip
-    # 设置环境变量
-    export FINETUNE_MODEL_PATH="$MODEL_PATH"
-    export FINETUNE_OUTPUT_DIR="./data/models/lora_etf_advisor"
-    export FINETUNE_DATA_DIR="./data/1D"
-    # 安装额外依赖
-    pip install transformers huggingface-hub tokenizers optimum accelerate peft trl datasets bitsandbytes scikit-learn pandas numpy
+# # 检查数据目录是否存在
+# if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
+#     echo "  ✅ ETF data found, starting fine-tuning..."
+#     rm -rf loraenv
+#     python3 -m venv loraenv
+#     source loraenv/bin/activate
+#     pip install --upgrade pip
+#     # 设置环境变量
+#     export FINETUNE_MODEL_PATH="$MODEL_PATH"
+#     export FINETUNE_OUTPUT_DIR="./data/models/lora_etf_advisor"
+#     export FINETUNE_DATA_DIR="./data/1D"
+#     # 安装额外依赖
+#     pip install transformers huggingface-hub tokenizers optimum accelerate peft trl datasets bitsandbytes scikit-learn pandas numpy
 
-    # 运行调优脚本
-    # PYTHONPATH=. python scripts/finetune_qwen.py
-    PYTHONPATH=. python -m app.lora_finetuner --data_dir ./data/1D --use_4bit
+#     # 运行调优脚本
+#     # PYTHONPATH=. python scripts/finetune_qwen.py
+#     PYTHONPATH=. python -m app.lora_finetuner --data_dir ./data/1D --use_4bit
     
-    # 检查调优是否成功
-    if [ -f "./data/models/lora_etf_advisor/adapter_model.safetensors" ]; then
-        echo "  ✅ LoRA fine-tuning completed successfully!"
-        echo "  📁 LoRA weights saved to: ./data/models/lora_etf_advisor"
-    else
-        echo "  ⚠️ LoRA fine-tuning may have failed, check logs above"
-    fi
-else
-    echo "  ⚠️ ETF data not found at ./data/1D, skipping fine-tuning"
-    echo "  💡 Please add ETF historical data files (*.txt) to ./data/1D/"
-    echo "  💡 Example format: date,open,high,low,close,volume,money"
-fi
+#     # 检查调优是否成功
+#     if [ -f "./data/models/lora_etf_advisor/adapter_model.safetensors" ]; then
+#         echo "  ✅ LoRA fine-tuning completed successfully!"
+#         echo "  📁 LoRA weights saved to: ./data/models/lora_etf_advisor"
+#     else
+#         echo "  ⚠️ LoRA fine-tuning may have failed, check logs above"
+#     fi
+# else
+#     echo "  ⚠️ ETF data not found at ./data/1D, skipping fine-tuning"
+#     echo "  💡 Please add ETF historical data files (*.txt) to ./data/1D/"
+#     echo "  💡 Example format: date,open,high,low,close,volume,money"
+# fi
 
 
 # 13. Clean up temporary files
