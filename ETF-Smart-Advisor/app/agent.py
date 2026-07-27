@@ -1,4 +1,8 @@
 # app/agent.py
+"""
+ETF 智能投顾 Agent - 包含所有业务逻辑
+"""
+
 import json
 import hashlib
 from collections import defaultdict
@@ -7,18 +11,20 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
-from .qwen_model import get_qwen_model
+from .llm_client import get_llm_client
 from .gpu_optimizer import ROCmGPUOptimizer
 from .stability_manager import StabilityManager
 from .feedback_learning import FeedbackLearning
 from .lightweight_adapter import LightweightAdapter
 from .config import (
     AGENT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT_EXTENDED,
-    DEFAULT_ETF_POOL, MEMORY_CONFIG, MODELS_DIR
+    MEMORY_CONFIG, MODELS_DIR, MILVUS_CONFIG
 )
 from .data_fetcher import ETFDataFetcher
 from .advisor import InvestmentAdvisor
 from .predictor import ETFPricePredictor
+from .milvus_client import get_milvus_client
+from .privacy.privacy_manager import PrivacyManager
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +74,15 @@ class MemoryManager:
         for m in memories:
             context += f"用户: {m['query']}\n助手: {m['response']}\n"
         return context
+    
+    def get_stats(self) -> Dict:
+        """获取记忆统计"""
+        total = sum(len(v) for v in self.memories.values())
+        return {
+            "total_sessions": len(self.memories),
+            "total_memories": total,
+            "avg_per_session": total / len(self.memories) if self.memories else 0,
+        }
 
 
 class TaskPlanner:
@@ -104,37 +119,58 @@ class TaskPlanner:
 
 
 class ETFAdvisorAgent:
-    """ETF智能投顾Agent - 使用 Qwen 模型"""
+    """
+    ETF 智能投顾 Agent - 包含所有业务逻辑
+    
+    核心能力：
+    1. 工具调用 - 获取 ETF 数据、分析、预测
+    2. RAG 检索 - 使用 Milvus 知识库
+    3. 多轮记忆 - 对话上下文管理
+    4. 任务规划 - 多步骤任务分解
+    5. 隐私保护 - 数据脱敏和审计
+    """
     
     def __init__(self):
         self.logger = logger
         
-        # 初始化 Qwen 模型
-        self.qwen = get_qwen_model()
-        try:
-            self.qwen.load_model()
-        except Exception as e:
-            logger.warning(f"Qwen 模型加载失败: {e}")
+        # ============================================================
+        # 初始化所有服务
+        # ============================================================
         
-        # 初始化 GPU 优化器
+        # 统一 LLM 客户端（支持 vLLM + Transformers）
+        self.llm = get_llm_client()
+        try:
+            # 测试 LLM 是否可用
+            status = self.llm.get_model_status()
+            logger.info(f"✅ LLM 客户端初始化成功")
+            logger.info(f"   vLLM 可用: {status.get('vllm_available', False)}")
+            logger.info(f"   Transformers 已加载: {status.get('transformers_loaded', False)}")
+        except Exception as e:
+            logger.warning(f"⚠️ LLM 客户端初始化警告: {e}")
+        
+        # GPU 优化器
         self.gpu_optimizer = ROCmGPUOptimizer()
         
-        # 初始化稳定性管理器
+        # 稳定性管理器
         self.stability_manager = StabilityManager()
         self.stability_manager.start()
         
-        # 初始化反馈学习
+        # 反馈学习
         self.feedback_learning = FeedbackLearning()
         
-        # 初始化轻量化适配器
+        # 轻量化适配器
         self.lightweight_adapter = LightweightAdapter()
         
-        # 初始化服务
+        # 数据获取
         self.fetcher = ETFDataFetcher()
+        
+        # 投资顾问
         self.advisor = InvestmentAdvisor()
+        
+        # 价格预测
         self.predictor = ETFPricePredictor()
         
-        # 加载 LoRA 适配器
+        # LoRA 适配器
         lora_path = MODELS_DIR / "lora_etf_advisor"
         if lora_path.exists():
             try:
@@ -143,8 +179,24 @@ class ETFAdvisorAgent:
             except Exception as e:
                 self.logger.warning(f"⚠️ LoRA 加载失败: {e}")
         
+        # Milvus（知识库）
+        try:
+            self.milvus = get_milvus_client()
+            stats = self.milvus.get_stats()
+            self.logger.info(f"✅ Milvus 已初始化")
+            self.logger.info(f"   Collection: {stats.get('collection', 'N/A')}")
+            self.logger.info(f"   知识条目: {stats.get('total_knowledge', 0)}")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Milvus 初始化失败: {e}")
+            self.milvus = None
+        
+        # 隐私管理器
+        self.privacy = PrivacyManager()
+        
         # 记忆管理
         self.memory = MemoryManager() if MEMORY_CONFIG.get("enabled", True) else None
+        
+        # 任务规划
         self.planner = TaskPlanner()
         
         # 系统提示
@@ -152,41 +204,65 @@ class ETFAdvisorAgent:
         
         logger.info("✅ ETFAdvisorAgent 初始化完成")
     
-    def _call_qwen(
-        self,
-        user_message: str,
-        system_prompt: Optional[str] = None,
-        history: Optional[List[Dict]] = None,
-        **kwargs
-    ) -> Dict[str, Any]:
-        """调用 Qwen 模型"""
-        system = system_prompt or self.system_prompt
-        
-        result = self.qwen.chat(
-            user_message=user_message,
-            system_prompt=system,
-            history=history,
-            **kwargs
-        )
-        
-        return result
+    # ============================================================
+    # 核心 Chat 方法（异步）
+    # ============================================================
     
-    async def chat(self, message: str, symbol: str = None, session_id: str = None) -> Dict[str, Any]:
-        """处理用户消息"""
+    async def chat(
+        self,
+        message: str,
+        symbol: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        处理用户消息 - 包含所有业务逻辑
         
-        # 检查资源状态
+        Args:
+            message: 用户消息
+            symbol: 可选，ETF 代码
+            session_id: 可选，会话 ID
+        
+        Returns:
+            {
+                "success": bool,
+                "response": str,
+                "session_id": str,
+                "intent": str
+            }
+        """
+        # 1. 隐私保护 - 记录访问
+        if self.privacy:
+            self.privacy.log_access(
+                session_id or "anonymous",
+                "chat",
+                symbol or "general",
+                {"message_length": len(message)}
+            )
+        
+        # 2. 资源检查
         resource_status = self.lightweight_adapter.get_resource_report()
         if resource_status.get('cpu_percent', 0) > 80:
             return {
                 "response": "⚠️ 系统负载较高，建议稍后再试",
-                "success": False
+                "success": False,
+                "session_id": session_id
             }
         
-        # 智能意图识别
+        # 3. 意图识别
         message_lower = message.lower()
         
+        # 检测是否请求知识检索
+        if any(kw in message_lower for kw in ['什么是', '解释', '介绍', '知识', '说明', '科普']):
+            rag_result = await self._search_knowledge(message)
+            return {
+                "response": rag_result,
+                "success": True,
+                "session_id": session_id,
+                "intent": "rag_search"
+            }
+        
         # 检测是否请求 Top 推荐
-        if any(keyword in message_lower for keyword in ['推荐', 'top', '排名', '最好', '最佳']):
+        if any(kw in message_lower for kw in ['推荐', 'top', '排名', '最好', '最佳', '涨幅榜']):
             top_results = await self._get_top_recommendations()
             return {
                 "response": top_results,
@@ -196,7 +272,7 @@ class ETFAdvisorAgent:
             }
         
         # 检测是否请求预测
-        if any(keyword in message_lower for keyword in ['预测', '未来', '走势', '涨跌']):
+        if any(kw in message_lower for kw in ['预测', '未来', '走势', '涨跌', '预估']):
             if symbol:
                 pred_result = await self._get_prediction(symbol)
                 return {
@@ -207,11 +283,10 @@ class ETFAdvisorAgent:
                 }
         
         # 检测是否请求分析
-        if any(keyword in message_lower for keyword in ['分析', '评估', '怎么看', '建议']):
+        if any(kw in message_lower for kw in ['分析', '评估', '怎么看', '建议', '诊断']):
             if symbol:
                 tech_analysis = await self._analyze_technical(symbol)
                 rec_result = await self._get_recommendation(symbol)
-                
                 combined = f"{tech_analysis}\n\n{rec_result}"
                 return {
                     "response": combined,
@@ -220,7 +295,22 @@ class ETFAdvisorAgent:
                     "intent": "analysis"
                 }
         
-        # 使用 Qwen 处理一般对话
+        # 检测是否请求对比
+        if any(kw in message_lower for kw in ['对比', '比较', '区别']):
+            if symbol:
+                # 提取要对比的多个代码
+                import re
+                symbols = re.findall(r'[0-9]{6}', message)
+                if len(symbols) >= 2:
+                    compare_result = await self._compare_etfs_str(','.join(symbols[:5]))
+                    return {
+                        "response": compare_result,
+                        "success": True,
+                        "session_id": session_id,
+                        "intent": "compare"
+                    }
+        
+        # 4. 使用 LLM 处理一般对话
         context = ""
         if self.memory and session_id:
             context = self.memory.get_context(session_id)
@@ -231,13 +321,13 @@ class ETFAdvisorAgent:
         else:
             full_message = message
         
-        # 如果有 symbol，添加到上下文中
         if symbol:
             full_message = f"当前分析标的: {symbol}\n{full_message}"
         
         try:
-            result = self._call_qwen(
+            result = self.llm.chat(
                 user_message=full_message,
+                system_prompt=self.system_prompt,
                 max_new_tokens=512,
                 temperature=0.7
             )
@@ -256,19 +346,218 @@ class ETFAdvisorAgent:
             else:
                 return {
                     "response": result.get('response', '处理失败'),
-                    "success": False
+                    "success": False,
+                    "session_id": session_id
                 }
                 
         except Exception as e:
             logger.error(f"Chat error: {e}")
             return {
                 "response": f"处理失败: {str(e)}",
-                "success": False
+                "success": False,
+                "session_id": session_id
             }
     
     # ============================================================
-    # 工具方法
+    # 同步接口（供 main.py 调用）
     # ============================================================
+    
+    def get_recommendation_sync(self, symbol: str, period: str = "1y") -> Dict:
+        """同步获取投资建议"""
+        try:
+            df = self.fetcher.get_history(symbol, period)
+            if df.empty:
+                return {"success": False, "error": f"无法获取 {symbol} 的数据"}
+            
+            advice = self.advisor.get_recommendation(symbol, df)
+            return {"success": True, "data": advice}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def get_prediction_sync(self, symbol: str, period: str = "1y") -> Dict:
+        """同步获取价格预测"""
+        try:
+            df = self.fetcher.get_history(symbol, period)
+            if df.empty:
+                return {"success": False, "error": f"无法获取 {symbol} 的数据"}
+            
+            pred = self.predictor.predict(df, use_ensemble=True)
+            if not pred.get('success', False):
+                return {"success": False, "error": pred.get('error', '预测失败')}
+            return {"success": True, "data": pred}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def get_quote_sync(self, symbol: str) -> Dict:
+        """同步获取实时行情"""
+        try:
+            quote = self.fetcher.get_etf_quote(symbol)
+            if not quote:
+                return {"success": False, "error": f"未找到 {symbol}"}
+            return {"success": True, "data": quote}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def get_top_recommendations_sync(self) -> Dict:
+        """同步获取 Top 推荐"""
+        try:
+            etfs = self.fetcher.get_etf_list()
+            top_results = self.advisor.get_top_recommendations(etfs)
+            return {"success": True, "data": top_results}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def search_knowledge_sync(self, query: str, top_k: int = 5) -> Dict:
+        """同步搜索知识库"""
+        try:
+            if self.milvus is None:
+                return {"success": False, "error": "知识库服务不可用"}
+            
+            results = self.milvus.search(query=query, top_k=top_k)
+            return {"success": True, "results": results, "count": len(results)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def get_status(self) -> Dict:
+        """获取系统状态"""
+        llm_status = self.llm.get_model_status()
+        milvus_stats = self.milvus.get_stats() if self.milvus else {"available": False}
+        memory_stats = self.memory.get_stats() if self.memory else {"enabled": False}
+        
+        return {
+            "llm": llm_status,
+            "milvus": milvus_stats,
+            "memory": memory_stats,
+            "gpu": self.gpu_optimizer.get_performance_stats(),
+            "privacy": {
+                "enabled": self.privacy.enabled if self.privacy else False,
+            }
+        }
+    
+    # ============================================================
+    # 工具方法（异步）
+    # ============================================================
+    
+    async def _search_knowledge(self, query: str, category: Optional[str] = None) -> str:
+        """
+        搜索知识库 - 使用 Milvus 向量检索
+        
+        Args:
+            query: 搜索查询
+            category: 知识类别过滤（可选）
+        
+        Returns:
+            格式化的搜索结果
+        """
+        # 隐私保护
+        if self.privacy:
+            self.privacy.log_access(
+                "user",
+                "search_knowledge",
+                "rag",
+                {"query": query[:50], "category": category}
+            )
+        
+        if self.milvus is None:
+            return "⚠️ 知识库服务不可用，请检查 Milvus 连接"
+        
+        try:
+            results = self.milvus.search(query=query, top_k=5, category=category)
+            
+            if not results:
+                # 降级：使用 LLM 生成回答
+                try:
+                    llm_response = await self._generate_knowledge_response(query)
+                    if llm_response:
+                        return f"📚 知识检索结果\n{'='*40}\n\n未在知识库中找到相关内容，但根据我的理解：\n\n{llm_response}"
+                except:
+                    pass
+                return "📚 知识检索结果\n{'='*40}\n\n未找到相关知识，请尝试其他关键词。"
+            
+            # 格式化结果
+            output = f"📚 知识检索结果 (找到 {len(results)} 条)\n"
+            output += "="*40 + "\n\n"
+            
+            for i, item in enumerate(results, 1):
+                output += f"{i}. 📖 {item['title']}\n"
+                output += f"   {item['content']}\n"
+                
+                if item.get('category'):
+                    output += f"   🏷️  类别: {item['category']}\n"
+                
+                if 'score' in item:
+                    score_pct = item['score'] * 100
+                    if score_pct > 80:
+                        score_bar = "██████████"
+                    elif score_pct > 60:
+                        score_bar = "████████░░"
+                    elif score_pct > 40:
+                        score_bar = "██████░░░░"
+                    else:
+                        score_bar = "████░░░░░░"
+                    output += f"   📊 相关度: {score_bar} {score_pct:.1f}%\n"
+                
+                output += "\n"
+            
+            # RAG 增强
+            if len(results) > 0:
+                try:
+                    top_content = results[0]['content']
+                    enhanced = await self._enhance_with_llm(query, top_content)
+                    if enhanced:
+                        output += f"\n🤖 LLM 补充分析:\n{enhanced}\n"
+                except:
+                    pass
+            
+            return output
+            
+        except Exception as e:
+            logger.error(f"RAG 搜索失败: {e}")
+            return f"⚠️ 搜索失败: {e}"
+    
+    async def _generate_knowledge_response(self, query: str) -> Optional[str]:
+        """使用 LLM 生成知识回答（RAG 无结果时降级）"""
+        try:
+            prompt = f"""请基于你的知识回答以下问题。如果问题涉及ETF投资，请提供专业、准确的信息。
+
+问题: {query}
+
+回答:"""
+            
+            response = self.llm.generate_response(
+                messages=[{"role": "user", "content": prompt}],
+                max_new_tokens=300,
+                temperature=0.7,
+                enable_thinking=False
+            )
+            
+            return response
+        except Exception as e:
+            logger.error(f"LLM 生成失败: {e}")
+            return None
+    
+    async def _enhance_with_llm(self, query: str, context: str) -> Optional[str]:
+        """使用 LLM 增强 RAG 结果"""
+        try:
+            prompt = f"""基于以下知识，对用户问题进行补充分析：
+
+知识: {context}
+
+用户问题: {query}
+
+请用简洁专业的语言（50字以内）补充回答。"""
+
+            response = self.llm.generate_response(
+                messages=[{"role": "user", "content": prompt}],
+                max_new_tokens=100,
+                temperature=0.5,
+                enable_thinking=False
+            )
+            
+            return response
+        except Exception as e:
+            logger.error(f"LLM 增强失败: {e}")
+            return None
     
     async def _get_quote(self, symbol: str) -> str:
         """获取ETF实时行情"""
@@ -367,42 +656,46 @@ class ETFAdvisorAgent:
     
     async def _get_top_recommendations(self) -> str:
         """获取 Top 3 推荐"""
-        top_results = self.advisor.get_top_recommendations()
+        etfs = self.fetcher.get_etf_list()
+        top_results = self.advisor.get_top_recommendations(etfs)
         
         report = "📊 今日 Top 3 ETF 推荐\n"
         report += "="*60 + "\n\n"
         
         # 买入推荐
-        report += "🟢 Top 3 买入推荐\n"
-        report += "-"*40 + "\n"
-        for i, rec in enumerate(top_results['buy'], 1):
-            report += f"{i}. {rec['symbol']}\n"
-            report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
-            report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n"
-            report += f"   {rec['reasons'][0] if rec['reasons'] else ''}\n\n"
+        if top_results['buy']:
+            report += "🟢 Top 3 买入推荐\n"
+            report += "-"*40 + "\n"
+            for i, rec in enumerate(top_results['buy'], 1):
+                report += f"{i}. {rec['symbol']}\n"
+                report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
+                report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n"
+                report += f"   {rec['reasons'][0] if rec['reasons'] else ''}\n\n"
         
         # 持有推荐
-        report += "🟡 Top 3 持有推荐\n"
-        report += "-"*40 + "\n"
-        for i, rec in enumerate(top_results['hold'], 1):
-            report += f"{i}. {rec['symbol']}\n"
-            report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
-            report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n\n"
+        if top_results['hold']:
+            report += "🟡 Top 3 持有推荐\n"
+            report += "-"*40 + "\n"
+            for i, rec in enumerate(top_results['hold'], 1):
+                report += f"{i}. {rec['symbol']}\n"
+                report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
+                report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n\n"
         
         # 卖出推荐
-        report += "🔴 Top 3 卖出推荐\n"
-        report += "-"*40 + "\n"
-        for i, rec in enumerate(top_results['sell'], 1):
-            report += f"{i}. {rec['symbol']}\n"
-            report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
-            report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n\n"
+        if top_results['sell']:
+            report += "🔴 Top 3 卖出推荐\n"
+            report += "-"*40 + "\n"
+            for i, rec in enumerate(top_results['sell'], 1):
+                report += f"{i}. {rec['symbol']}\n"
+                report += f"   价格: {rec['current_price']:.3f} | 目标: {rec['target_price']:.3f}\n"
+                report += f"   评分: {rec['score']:.1f}/8 | 风险: {rec['risk_level']}\n\n"
         
         report += "⚠️ 风险提示: 投资有风险，决策需谨慎。"
         return report
     
-    async def _compare_etfs(self, symbols: str) -> str:
-        """比较多个ETF"""
-        symbol_list = [s.strip() for s in symbols.split(',')]
+    async def _compare_etfs_str(self, symbols_str: str) -> str:
+        """比较多个 ETF（字符串输入）"""
+        symbol_list = [s.strip() for s in symbols_str.split(',')]
         
         report = "📊 ETF对比\n"
         report += "="*50 + "\n\n"
@@ -421,26 +714,10 @@ class ETFAdvisorAgent:
                     }.get(advice['recommendation'], '⚪观望')
                     report += f"{symbol}\t{quote['name'][:8]}\t{quote['price']:.3f}\t{quote['change']:+.2f}%\t{adv_emoji}\n"
         
+        if report == "📊 ETF对比\n" + "="*50 + "\n\n" + "代码\t名称\t价格\t涨跌幅\t建议\n":
+            return "无法获取任何 ETF 数据"
+        
         return report
-    
-    async def _search_knowledge(self, query: str) -> str:
-        """搜索知识库"""
-        knowledge_base = {
-            "ETF": "ETF（交易型开放式指数基金）是一种在交易所上市交易的基金。",
-            "网格交易": "网格交易是一种在设定的价格区间内分批买卖的策略。",
-            "定投": "定期定额投资是一种长期投资策略。",
-            "沪深300": "沪深300指数由沪深两市规模最大的300只股票组成。",
-        }
-        
-        results = []
-        for key, value in knowledge_base.items():
-            if key in query or any(k in query for k in key):
-                results.append(value)
-        
-        if not results:
-            return "未找到相关知识"
-        
-        return f"📚 知识检索结果\n{'='*40}\n\n" + "\n".join(results[:3])
     
     async def _generate_report(self, symbol: str) -> str:
         """生成完整分析报告"""
@@ -475,7 +752,7 @@ class ETFAdvisorAgent:
         return report
     
     async def _analyze_complete(self, symbol: str) -> str:
-        """完整分析"""
+        """完整分析 - 多步骤任务规划"""
         steps = self.planner.plan(symbol, "full")
         results = []
         

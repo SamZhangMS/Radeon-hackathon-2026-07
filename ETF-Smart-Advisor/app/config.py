@@ -13,6 +13,10 @@ for d in [DATA_DIR, MODELS_DIR, CACHE_DIR]:
 # AMD ROCm设备配置
 DEVICE = "cuda" if os.environ.get("ROCM_VISIBLE_DEVICES") else "cpu"
 
+os.environ["PYTORCH_ROCM_ALLOC_CONF"] = "max_split_size_mb:128,expandable_segments:True"
+os.environ["TORCH_ROCM_GRAPH"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
+
 # ============================================================
 # Qwen 模型配置 - 使用本地模型
 # ============================================================
@@ -20,28 +24,26 @@ DEVICE = "cuda" if os.environ.get("ROCM_VISIBLE_DEVICES") else "cpu"
 QWEN_MODEL_PATH = "./models/Qwen/mapfinben-qwen35-9b"
 QWEN_MODEL_NAME = "mapfinben-qwen35-9b"
 
-# LLM配置 - 直接使用 transformers
-LLM_CONFIG = {
-    "model_path": QWEN_MODEL_PATH,
-    "model_name": QWEN_MODEL_NAME,
-    "trust_remote_code": True,
-    "torch_dtype": "auto",
-    "device_map": "auto",
-    "enable_thinking": False,  # 重要：关闭思考模式
-}
 
 # VLLM配置（用于API模式）
 VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
 VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://localhost:8000/v1")
 VLLM_MODEL = os.environ.get("VLLM_MODEL", QWEN_MODEL_PATH)
-
+API_KEY = os.environ.get("API_KEY", "abc-123")
+API_PORT = int(os.environ.get("API_PORT", 7860))
+TOOL_SERVER_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 8001,
+    "timeout": 30,
+}
 # RAG 配置
 RAG_CONFIG = {
-    "collection_name": "etf_knowledge",
-    "embedding_model": "all-MiniLM-L6-v2",
+    "enabled": True,
+    "top_k": 5,
     "chunk_size": 512,
     "chunk_overlap": 50,
-    "top_k": 5,
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2", #"all-MiniLM-L6-v2",
+    "knowledge_dir": str(BASE_DIR / "knowledge"),
 }
 
 # 记忆配置
@@ -51,11 +53,20 @@ MEMORY_CONFIG = {
     "memory_path": str(DATA_DIR / "memory.json"),
 }
 
-# 任务规划配置
-PLANNER_CONFIG = {
+DIFY_CONFIG = {
     "enabled": True,
-    "max_steps": 5,
+    "api_url": os.environ.get("DIFY_API_URL", "http://localhost:5001/v1"),
+    "api_key": os.environ.get("DIFY_API_KEY", ""),
+    "workflow_id": os.environ.get("DIFY_WORKFLOW_ID", ""),
+    "app_id": os.environ.get("DIFY_APP_ID", ""),
 }
+
+TOOL_SERVER_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 8001,
+    "timeout": 30,
+}
+
 
 LORA_CONFIG = {
     "enabled": True,
@@ -77,7 +88,7 @@ PREDICT_CONFIG = {
 }
 
 # Agent系统提示
-AGENT_SYSTEM_PROMPT = """你是ETF-Smart Advisor，专业的ETF投资顾问。
+AGENT_SYSTEM_PROMPT = """你是专业的ETF投资顾问。
 
 你的核心能力：
 1. 分析ETF的技术指标和趋势
@@ -109,11 +120,7 @@ AGENT_SYSTEM_PROMPT_EXTENDED = """
 对于复杂任务，请自动分解为多个步骤并依次执行。
 """
 
-# 默认ETF池
-DEFAULT_ETF_POOL = [
-    "510050", "510300", "510500", "159919", "159915",
-    "512880", "512690", "515050", "516160", "512170"
-]
+
 
 # 推荐配置
 RECOMMEND_CONFIG = {
@@ -154,25 +161,51 @@ GPU_LOCAL_PREDICTORS = {
 # ============================================================
 
 LLM_API_CONFIG = {
-    "deepseek": {
-        "name": "DeepSeek-V4-Flash",
-        "api_base": os.environ.get("DEEPSEEK_API_BASE", "https://radeon.anruicloud.com/api/v1/chat/completions"),
-        "api_key": os.environ.get("DEEPSEEK_API_KEY", "rc-7011453aecbbe0901a4b6d73980aea50852ad2c3002d8bf6"),
-        "model": os.environ.get("DEEPSEEK_MODEL", "DeepSeek-V4-Flash"),
+    # 模型基础配置
+    "model_path": QWEN_MODEL_PATH,
+    "model_name": QWEN_MODEL_NAME,
+    "trust_remote_code": True,
+    "torch_dtype": "auto",
+    "device_map": "auto",
+    "enable_thinking": False,
+    
+    # vLLM 推理配置
+    "vllm": {
         "enabled": True,
-        "weight": 0.3,
-        "type": "remote"
+        "host": "localhost",
+        "port": 8000,
+        "served_model_name": QWEN_MODEL_NAME,
+        "gpu_memory_utilization": 0.85,
+        "max_num_seqs": 32,
+        "dtype": "bfloat16",
+        "quantization": None,
+        "max_model_len": 8192,
     },
-    "qwen_local": {
-        "name": "Qwen-Local",
-        "api_base": os.environ.get("QWEN_API_BASE", VLLM_API_BASE),
-        "api_key": os.environ.get("QWEN_API_KEY", VLLM_API_KEY),
-        "model": os.environ.get("QWEN_MODEL_NAME", QWEN_MODEL_NAME),
+    
+    # 外部 API 配置
+    "external": {
+        "deepseek": {
+            "name": "DeepSeek-V4-Flash",
+            "api_base": os.environ.get("DEEPSEEK_API_BASE", "https://radeon.anruicloud.com/api/v1/chat/completions"),
+            "api_key": os.environ.get("DEEPSEEK_API_KEY", ""),
+            "model": os.environ.get("DEEPSEEK_MODEL", "DeepSeek-V4-Flash"),
+            "enabled": False,
+            "weight": 0.3,
+        }
+    },
+    
+    # LoRA 配置
+    "lora": {
         "enabled": True,
-        "weight": 0.4,
-        "type": "local"
+        "path": str(MODELS_DIR / "lora_etf_advisor"),
+        "r": 16,
+        "lora_alpha": 32,
+        "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        "lora_dropout": 0.1,
     }
 }
+LLM_CONFIG = LLM_API_CONFIG
+VLLM_CONFIG = LLM_API_CONFIG["vllm"]
 
 # ============================================================
 # LoRA微调配置
@@ -188,5 +221,34 @@ LORA_FINETUNE_CONFIG = {
     "batch_size": 2,
     "epochs": 3,
     "learning_rate": 2e-4,
-    "max_seq_length": 2048
+    "max_seq_length": 2048,
+}
+
+PRIVACY_CONFIG = {
+    "enabled": True,
+    "data_retention_days": 30,
+    "anonymize_data": True,
+    "local_only": True,  # 数据不上传云端
+    "audit_enabled": True,
+}
+
+PERMISSION_CONFIG = {
+    "default_role": "user",
+    "roles": {
+        "user": ["read", "search", "get_quote", "get_history"],
+        "analyst": ["read", "search", "get_quote", "get_history", "analyze", "predict"],
+        "admin": ["read", "write", "delete", "update", "analyze", "predict", "finetune"],
+    }
+}
+
+MILVUS_CONFIG = {
+    "enabled": True,
+    "host": "localhost",
+    "port": "19530",
+    "collection_name": "etf_knowledge",
+    "dim": 384,
+    "index_type": "IVF_FLAT",
+    "metric_type": "IP",
+    "nlist": 128,
+    "top_k": 5,
 }

@@ -818,10 +818,9 @@ class ETFPricePredictor:
     def call_qwen(self, df: pd.DataFrame) -> Dict:
         """调用本地 Qwen 模型进行预测"""
         try:
-            from .qwen_model import get_qwen_model
+            from .llm_client import get_llm_client
             
-            qwen = get_qwen_model()
-            qwen.load_model()
+            llm = get_llm_client()
             
             # 准备数据摘要
             last_price = float(df['close'].iloc[-1])
@@ -837,7 +836,7 @@ class ETFPricePredictor:
 
     请给出未来20天的预测价格（以JSON数组格式返回）。"""
 
-            response = qwen.generate_response(
+            response = llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=512,
                 enable_thinking=False

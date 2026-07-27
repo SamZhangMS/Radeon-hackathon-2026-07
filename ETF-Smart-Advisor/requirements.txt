@@ -56,3 +56,6 @@ bitsandbytes>=0.43.0
 httpx>=0.28.0
 orjson>=3.10.0
 tqdm>=4.66.0
+
+pymilvus 
+milvus-lite

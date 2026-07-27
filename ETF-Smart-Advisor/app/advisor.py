@@ -122,12 +122,11 @@ class InvestmentAdvisor:
         """✅ 获取 Top 3 买入/卖出/持有推荐（新增）
         
         Args:
-            symbols: ETF 代码列表，默认使用配置中的 DEFAULT_ETF_POOL
+            symbols: ETF 代码列表，
         """
-        from .config import DEFAULT_ETF_POOL
         
         if symbols is None:
-            symbols = DEFAULT_ETF_POOL
+            symbols = self.fetcher.get_etf_list()
         
         results = {
             'buy': [],
@@ -180,23 +179,32 @@ class InvestmentAdvisor:
         return results
 
     def _get_qwen_analysis(self, symbol: str, advice: Dict) -> str:
-        """✅ 调用 Qwen 进行增强分析（新增）"""
+        """调用 Qwen 进行增强分析"""
         try:
+            from .llm_client import get_llm_client
+        
+            llm = get_llm_client()
+            
             # 构建分析上下文
-            context = f"""
-            请对 ETF {symbol} 进行专业分析：
-            - 当前价格: {advice['current_price']}
-            - 技术趋势: {advice['technical']['trend']}
-            - RSI: {advice['technical']['rsi']:.1f}
-            - 投资建议: {advice['signal']}
-            - 风险等级: {advice['risk_level']}
+            prompt = f"""请对 ETF {symbol} 进行专业分析：
+
+    当前价格: {advice['current_price']:.3f}
+    技术趋势: {advice['technical']['trend']}
+    RSI: {advice['technical']['rsi']:.1f}
+    MACD柱: {advice['technical']['macd_hist']:.4f}
+    投资建议: {advice['signal']}
+    风险等级: {advice['risk_level']}
+
+    请用简洁专业的语言给出分析评语和投资建议（50字以内）。"""
+
+            messages = [{"role": "user", "content": prompt}]
+            response = llm.generate_response(
+                messages=messages,
+                max_new_tokens=100,
+                enable_thinking=False
+            )
             
-            请给出简短的分析评语和投资建议。
-            """
-            
-            # 调用 Qwen（通过 Agent 的 chat 方法）
-            # 这里简化处理，实际可通过 Agent 的 LLM 调用
-            return f"Qwen 分析: {symbol} 当前处于{advice['technical']['trend']}趋势，RSI={advice['technical']['rsi']:.1f}，建议{advice['signal']}。"
+            return f"🤖 Qwen 分析: {response}"
         except Exception as e:
             return f"Qwen 分析暂时不可用: {e}"
     

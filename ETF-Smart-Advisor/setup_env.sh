@@ -38,6 +38,7 @@ source etfadvisorvenv/bin/activate
 echo ""
 # echo "⬆️ Upgrading pip..."
 pip install --upgrade pip
+
 # pip install typing_extensions numpy
 # pip install pandas pyarrow --upgrade
 # pip install fastparquet
@@ -54,9 +55,14 @@ pip install --upgrade pip
 # pip install -r ../work/lib/Kronos/requirements.txt
 
 
+echo ""
+echo "Installing milvus-lite..."
+pip install pymilvus sentence-transformers milvus-lite
+export MILVUS_MODE=lite
+
 # 5. Install PyTorch dependencies
 echo ""
-echo "📦 Installing PyTorch dependencies..."
+echo "Installing PyTorch dependencies..."
 pip install typing_extensions numpy
 
 # 6. Download and install ROCm PyTorch
@@ -119,7 +125,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 # 10. Create data directories
 echo ""
 echo "📁 Creating data directories..."
-mkdir -p data/models data/cache
+mkdir -p data/models data/cache knowledge
 
 # 11. Check and download Qwen model
 # echo ""
@@ -239,4 +245,9 @@ echo ""
 
 source etfadvisorvenv/bin/activate
 # Call start.sh to launch the service
+
+
+
+
+# 4. 启动应用
 bash scripts/start.sh

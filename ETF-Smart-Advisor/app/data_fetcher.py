@@ -79,8 +79,7 @@ class ETFDataFetcher:
         return pd.DataFrame()
     def get_etf_list(self) -> List[str]:
         """获取默认ETF列表"""
-        # from .config import DEFAULT_ETF_POOL
-        # return DEFAULT_ETF_POOL
+
         stock_list = [
                 p.stem for p in Path(raw_data_path).iterdir() 
                 if p.is_file()
