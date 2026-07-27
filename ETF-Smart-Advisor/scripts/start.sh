@@ -191,7 +191,6 @@ if [ "$USE_VLLM" = true ]; then
         --gpu-memory-utilization=0.70 \
         --max-num-seqs=8 \
         --dtype=auto \
-        $QUANTIZATION_ARG \
         --max-model-len=4096 \
         --swap-space=4 \   
         $LORA_ARG \
