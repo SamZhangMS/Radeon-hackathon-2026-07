@@ -37,7 +37,7 @@ from app.advisor import InvestmentAdvisor
 from app.predictor import ETFPricePredictor
 from app.gpu_optimizer import ROCmGPUOptimizer
 from app.feedback_learning import FeedbackLearning
-from app.privacy_manager import PrivacyManager
+from app.privacy.privacy_manager import PrivacyManager
 
 
 class FeatureDemo:
