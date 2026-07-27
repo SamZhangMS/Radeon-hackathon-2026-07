@@ -29,7 +29,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from app.agent import ETFAdvisorAgent
-from app.config import DEFAULT_ETF_POOL, BASE_DIR, API_KEY, API_PORT
+from app.config import  BASE_DIR, API_KEY, API_PORT
 from app.milvus_client import get_milvus_client
 from app.llm_client import get_llm_client
 from app.data_fetcher import ETFDataFetcher
