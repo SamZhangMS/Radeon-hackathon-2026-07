@@ -815,3 +815,39 @@ class ETFPricePredictor:
             'final_loss': losses[-1]
         }
         
+    def call_qwen(self, df: pd.DataFrame) -> Dict:
+        """调用本地 Qwen 模型进行预测"""
+        try:
+            from .qwen_model import get_qwen_model
+            
+            qwen = get_qwen_model()
+            qwen.load_model()
+            
+            # 准备数据摘要
+            last_price = float(df['close'].iloc[-1])
+            ma5 = float(df['close'].rolling(5).mean().iloc[-1])
+            ma20 = float(df['close'].rolling(20).mean().iloc[-1])
+            volatility = float(df['close'].pct_change().std() * np.sqrt(252))
+            
+            prompt = f"""基于以下ETF数据预测未来走势：
+    最新价格: {last_price:.3f}
+    5日均线: {ma5:.3f}
+    20日均线: {ma20:.3f}
+    年化波动率: {volatility:.3f}
+
+    请给出未来20天的预测价格（以JSON数组格式返回）。"""
+
+            response = qwen.generate_response(
+                messages=[{"role": "user", "content": prompt}],
+                max_new_tokens=512,
+                enable_thinking=False
+            )
+            
+            return {
+                'success': True,
+                'model': 'Qwen-Local',
+                'response': response,
+                'is_qwen': True
+            }
+        except Exception as e:
+            return {'error': str(e), 'success': False}

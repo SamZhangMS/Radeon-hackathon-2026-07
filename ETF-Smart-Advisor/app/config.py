@@ -13,18 +13,27 @@ for d in [DATA_DIR, MODELS_DIR, CACHE_DIR]:
 # AMD ROCm设备配置
 DEVICE = "cuda" if os.environ.get("ROCM_VISIBLE_DEVICES") else "cpu"
 
-VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
-VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://localhost:8000/v1")
-VLLM_MODEL = os.environ.get("VLLM_MODEL", './models/Qwen/mapfinben-qwen35-9b')
+# ============================================================
+# Qwen 模型配置 - 使用本地模型
+# ============================================================
 
-# LLM配置
+QWEN_MODEL_PATH = "./models/Qwen/mapfinben-qwen35-9b"
+QWEN_MODEL_NAME = "mapfinben-qwen35-9b"
+
+# LLM配置 - 直接使用 transformers
 LLM_CONFIG = {
-    "model_name": './models/Qwen/mapfinben-qwen35-9b',
-    "api_base": "http://localhost:8000/v1",
-    "api_key": "abc-123",
+    "model_path": QWEN_MODEL_PATH,
+    "model_name": QWEN_MODEL_NAME,
+    "trust_remote_code": True,
+    "torch_dtype": "auto",
+    "device_map": "auto",
+    "enable_thinking": False,  # 重要：关闭思考模式
 }
 
-
+# VLLM配置（用于API模式）
+VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
+VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://localhost:8000/v1")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", QWEN_MODEL_PATH)
 
 # RAG 配置
 RAG_CONFIG = {
@@ -85,7 +94,7 @@ AGENT_SYSTEM_PROMPT = """你是ETF-Smart Advisor，专业的ETF投资顾问。
 务必提醒：投资有风险，决策需谨慎。
 """
 
-# 扩展 Agent 系统提示词（追加到现有提示词后面）
+# 扩展 Agent 系统提示词
 AGENT_SYSTEM_PROMPT_EXTENDED = """
 你具备以下工具能力：
 1. get_quote - 获取ETF实时行情
@@ -108,16 +117,16 @@ DEFAULT_ETF_POOL = [
 
 # 推荐配置
 RECOMMEND_CONFIG = {
-    "top_k": 3,  # Top K 推荐数量
-    "min_data_days": 60,  # 最少数据天数
-    "score_threshold": 0.5,  # 评分阈值
+    "top_k": 3,
+    "min_data_days": 60,
+    "score_threshold": 0.5,
 }
 
 # 集成预测配置
 ENSEMBLE_CONFIG = {
-    "transformer_weight": 0.6,  # Transformer 权重
-    "lstm_weight": 0.4,  # LSTM 权重
-    "min_confidence": 0.3,  # 最低置信度
+    "transformer_weight": 0.6,
+    "lstm_weight": 0.4,
+    "min_confidence": 0.3,
 }
 
 GPU_LOCAL_PREDICTORS = {
@@ -156,16 +165,14 @@ LLM_API_CONFIG = {
     },
     "qwen_local": {
         "name": "Qwen-Local",
-        "api_base": os.environ.get("QWEN_API_BASE", LLM_CONFIG["api_base"]),
-        "api_key": os.environ.get("QWEN_API_KEY", LLM_CONFIG["api_key"]),
-        "model": os.environ.get("QWEN_MODEL_NAME", LLM_CONFIG["model_name"]),
+        "api_base": os.environ.get("QWEN_API_BASE", VLLM_API_BASE),
+        "api_key": os.environ.get("QWEN_API_KEY", VLLM_API_KEY),
+        "model": os.environ.get("QWEN_MODEL_NAME", QWEN_MODEL_NAME),
         "enabled": True,
         "weight": 0.4,
         "type": "local"
     }
 }
-
-
 
 # ============================================================
 # LoRA微调配置
