@@ -859,7 +859,8 @@ class FeatureDemo:
                     <pre class="curl-command">{cmd['command']}</pre>
                     <div class="curl-response">
                         <span class="resp-label">响应:</span>
-                        <pre>{self._escape_html(self._format_curl_result(cmd.get('result')))</pre>
+                        <pre>{self._escape_html(self._format_curl_result(cmd.get('result')))}</pre>
+
                     </div>
                 </div>
 """
