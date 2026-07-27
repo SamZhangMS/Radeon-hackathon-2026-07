@@ -171,7 +171,7 @@ if [ "$USE_VLLM" = true ]; then
     
     # 启动 vLLM（在后台运行）
     VLLM_USE_TRITON_FLASH_ATTN=0 \
-    nohup vllm serve "$MODEL_PATH" \
+    vllm serve "$MODEL_PATH" \
         --served-model-name "mapfinben-qwen35-9b" \
         --port 8000 \
         --trust-remote-code \
