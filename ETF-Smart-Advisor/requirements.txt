@@ -60,3 +60,5 @@ tqdm>=4.66.0
 pymilvus 
 milvus-lite
 flash-attn
+flash-linear-attention
+causal-conv1d
