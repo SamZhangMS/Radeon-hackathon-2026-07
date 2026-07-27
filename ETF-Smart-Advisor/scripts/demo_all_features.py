@@ -185,7 +185,7 @@ class FeatureDemo:
         # 选择测试标的
         test_symbols = self.fetcher.get_etf_list()[:5]
         if not test_symbols:
-            test_symbols = ["510050", "510300", "510500", "159919", "159915"]
+            test_symbols = ["SH510050", "SH510300", "SH510500", "SZ159919", "SZ159915"]
         
         symbol = test_symbols[0]
         print(f"📌 使用标的: {symbol} (共 {len(test_symbols)} 个可用)\n")

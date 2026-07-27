@@ -3,6 +3,7 @@ import akshare as ak
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from .config import CACHE_DIR
@@ -80,8 +81,12 @@ class ETFDataFetcher:
     def get_etf_list(self) -> List[str]:
         """获取默认ETF列表"""
 
+        data_path = Path(raw_data_path)
+        if not data_path.exists():
+            return []
+        
         stock_list = [
-                p.stem for p in Path(raw_data_path).iterdir() 
-                if p.is_file()
-                    ]
+            p.stem for p in data_path.iterdir() 
+            if p.is_file() and p.suffix in ['.txt', '.csv']
+        ]
         return stock_list

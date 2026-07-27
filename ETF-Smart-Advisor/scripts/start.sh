@@ -30,6 +30,8 @@ export TORCH_ROCM_GRAPH=1
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
+export VLLM_ENGINE_READY_TIMEOUT_S=1800
+
 # 4. Check ROCm environment
 echo ""
 echo "🔍 Checking ROCm environment..."
@@ -186,11 +188,12 @@ if [ "$USE_VLLM" = true ]; then
         --served-model-name "mapfinben-qwen35-9b" \
         --port 8000 \
         --trust-remote-code \
-        --gpu-memory-utilization=0.85 \
-        --max-num-seqs=16 \
+        --gpu-memory-utilization=0.70 \
+        --max-num-seqs=8 \
         --dtype=auto \
         $QUANTIZATION_ARG \
-        --max-model-len=8192 \
+        --max-model-len=4096 \
+        --swap-space=4 \   
         $LORA_ARG \
         > vllm.log 2>&1 &
     
