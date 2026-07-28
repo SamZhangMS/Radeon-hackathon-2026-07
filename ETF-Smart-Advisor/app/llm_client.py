@@ -16,7 +16,8 @@ import httpx
 import torch
 import logging
 from typing import Optional, List, Dict, Any, Union
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer,BitsAndBytesConfig
+import bitsandbytes
 
 from .config import LLM_API_CONFIG
 
@@ -87,6 +88,8 @@ class LLMClient:
         self.vllm_model_name = vllm_config.get("served_model_name", "qwen-model")
         self.vllm_timeout = 60.0
         
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
         # 状态
         self._vllm_available = None
         self._transformers_loaded = False
@@ -95,6 +98,7 @@ class LLMClient:
         logger.info(f"   vLLM: {'启用' if self.use_vllm else '禁用'}")
         logger.info(f"   vLLM 端点: {self.vllm_base_url}")
         logger.info(f"   模型路径: {self.model_path}")
+        logger.info(f"   目标设备: {self.device}")
         logger.info(f"   思考模式: {'开启' if self.enable_thinking else '关闭'}")
     
     # ============================================================
@@ -238,20 +242,49 @@ class LLMClient:
             if self._tokenizer.pad_token is None:
                 self._tokenizer.pad_token = self._tokenizer.eos_token
             
-            # 加载模型
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4"
+            )
+                        
             self._model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 trust_remote_code=True,
-                torch_dtype="auto",
-                device_map="auto"
+                torch_dtype=torch.bfloat16,
+                device_map="cuda:0", # "auto",
+                quantization_config=bnb_config,
+                low_cpu_mem_usage=True,
             )
             
             self._transformers_loaded = True
             logger.info("✅ Transformers 模型加载完成")
             
-            # 打印模型信息
+            if hasattr(self._model, 'device'):
+                logger.info(f"   模型主设备: {self._model.device}")
+            
+            # 检查是否有参数在 CPU 上
+            cpu_params = 0
+            gpu_params = 0
+            meta_params = 0
+            for name, param in self._model.named_parameters():
+                if param.device.type == 'cpu':
+                    cpu_params += param.numel()
+                elif param.device.type == 'cuda':
+                    gpu_params += param.numel()
+                elif param.device.type == 'meta':
+                    meta_params += param.numel()
+            
+            logger.info(f"   📊 参数分布:")
+            logger.info(f"      GPU: {gpu_params/1e6:.2f}M")
+            if cpu_params > 0:
+                logger.warning(f"      CPU: {cpu_params/1e6:.2f}M ⚠️ 部分参数在 CPU 上")
+            if meta_params > 0:
+                logger.warning(f"      Meta: {meta_params/1e6:.2f}M ⚠️ 未分配")
+            
             total_params = sum(p.numel() for p in self._model.parameters())
-            logger.info(f"   模型参数: {total_params:,}")
+            logger.info(f"   总参数: {total_params:,}")
             
             return self._model, self._tokenizer
             
