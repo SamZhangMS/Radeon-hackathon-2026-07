@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Any
 from pathlib import Path
 from datetime import datetime, timedelta
+import traceback
 
 from .predictor import ETFPricePredictor
 from .data_fetcher import ETFDataFetcher
@@ -17,66 +18,61 @@ class InvestmentAdvisor:
     
     def get_recommendation(self, symbol: str, df: pd.DataFrame) -> Dict[str, Any]:
         """获取投资建议 - 使用大模型生成完整建议"""
-        if df.empty or len(df) < 60:
-            return {
-                'recommendation': 'neutral',
-                'confidence': 0,
-                'reasons': ['数据不足'],
-                'signal': 'wait',
-                'latest_date': None
-            }
-        
-        df_clean = df.copy()
-        # 检查每列是否有 NaN
-        for col in df_clean.columns:
-            if df_clean[col].isna().any():
-                df_clean[col] = df_clean[col].ffill().bfill().fillna(0)
-            if np.isinf(df_clean[col]).any():
-                df_clean[col] = df_clean[col].replace([np.inf, -np.inf], 0)
-
-
-        # 1. 计算技术指标（用于上下文）
-        indicators = self._calculate_indicators(df_clean)
-        
-        for key, value in indicators.items():
-            if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
-                indicators[key] = 0.0
-
-
-        # 2. 获取价格预测
-        prediction = self.predictor.predict(df_clean)
-        if not prediction.get('success', False):
-            pred_trend = 0
-            pred = None
-        else:
-            pred_trend = prediction.get('predicted_change', 0)
-            pred = prediction
-        
-        # 3. 使用大模型生成完整投资建议
-        llm_analysis = self._get_llm_analysis(symbol, df_clean, indicators, pred)
-        
-        # 4. 如果大模型分析失败，使用规则引擎作为降级方案
-        if llm_analysis.get('success', False):
-            return {
-                'recommendation': llm_analysis.get('recommendation', 'neutral'),
-                'signal': llm_analysis.get('signal', '持有'),
-                'score': llm_analysis.get('score', 0),
-                'reasons': llm_analysis.get('reasons', []),
-                'confidence': llm_analysis.get('confidence', 0.5),
-                'current_price': indicators['price'],
-                'technical': indicators,
-                'prediction': pred,
-                'risk_level': llm_analysis.get('risk_level', 'medium'),
-                'target_price': llm_analysis.get('target_price', indicators['price'] * 1.05),
-                'stop_loss': llm_analysis.get('stop_loss', indicators['price'] * 0.95),
-                'llm_analysis': llm_analysis.get('analysis', ''),
-                'latest_date': self._get_latest_date(df_clean),
-                'generatedby': 'LLM'
-            }
-        else:
-            # 降级方案：使用规则引擎
-            return self._get_rule_based_recommendation(symbol, df_clean, indicators, pred)
+        try:
+            if df.empty or len(df) < 60:
+                return {
+                    'recommendation': 'neutral',
+                    'confidence': 0,
+                    'reasons': ['数据不足'],
+                    'signal': 'wait',
+                    'latest_date': None
+                }
             
+            df_clean = df.copy()
+
+            # 1. 计算技术指标（用于上下文）
+            indicators = self._calculate_indicators(df_clean)
+            
+            for key, value in indicators.items():
+                if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+                    indicators[key] = 0.0
+
+
+            # 2. 获取价格预测
+            prediction = self.predictor.predict(df_clean)
+            if not prediction.get('success', False):
+                pred_trend = 0
+                pred = None
+            else:
+                pred_trend = prediction.get('predicted_change', 0)
+                pred = prediction
+            
+            # 3. 使用大模型生成完整投资建议
+            llm_analysis = self._get_llm_analysis(symbol, df_clean, indicators, pred)
+            
+            # 4. 如果大模型分析失败，使用规则引擎作为降级方案
+            if llm_analysis.get('success', False):
+                return {
+                    'recommendation': llm_analysis.get('recommendation', 'neutral'),
+                    'signal': llm_analysis.get('signal', '持有'),
+                    'score': llm_analysis.get('score', 0),
+                    'reasons': llm_analysis.get('reasons', []),
+                    'confidence': llm_analysis.get('confidence', 0.5),
+                    'current_price': indicators['price'],
+                    'technical': indicators,
+                    'prediction': pred,
+                    'risk_level': llm_analysis.get('risk_level', 'medium'),
+                    'target_price': llm_analysis.get('target_price', indicators['price'] * 1.05),
+                    'stop_loss': llm_analysis.get('stop_loss', indicators['price'] * 0.95),
+                    'llm_analysis': llm_analysis.get('analysis', ''),
+                    'latest_date': self._get_latest_date(df_clean),
+                    'generatedby': 'LLM'
+                }
+            else:
+                # 降级方案：使用规则引擎
+                return self._get_rule_based_recommendation(symbol, df_clean, indicators, pred)
+        except Exception as e:
+            traceback.print_exc()
             
     def _get_llm_analysis(self, symbol: str, df: pd.DataFrame, 
                           indicators: Dict, prediction: Dict) -> Dict:

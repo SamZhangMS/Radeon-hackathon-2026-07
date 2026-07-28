@@ -8,21 +8,9 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union,Any
 from datetime import datetime, timedelta
 from .config import DEVICE, PREDICT_CONFIG, MODELS_DIR, LLM_CONFIG 
-from .lora_finetuner import ETFAdvisorLoRATuner
-from .utils import  get_last_date
+from .utils import  get_last_date,generate_future_daily_dates
 
-holiday_list_cn = [
-        '2026-01-01', # 元旦
-        '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', 
-        '2026-02-20', '2026-02-21', '2026-02-22', '2026-02-23', # 春节连休
-        '2026-04-04', '2026-04-05', '2026-04-06', # 清明
-        '2026-05-01', '2026-05-02', '2026-05-03', '2026-05-04', '2026-05-05', # 五一 (当前时间附近的假期)
-        '2026-06-19', '2026-06-20', '2026-06-21', # 端午
-        '2026-09-25', '2026-09-26', '2026-09-27', # 中秋
-        '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', 
-        '2026-10-05', '2026-10-06', '2026-10-07', # 国庆
-        '2027-01-01'
-    ]
+
 class TimeSeriesTransformer(nn.Module):
     """时间序列预测Transformer模型"""
     
@@ -347,8 +335,8 @@ class ETFPricePredictor:
                 close_prices = pred_denorm[:, 3]
                 
                 # 使用修复后的日期生成函数
-                last_date = df.index[-1]
-                future_dates = generate_future_date_strings(last_date, self.pred_length)
+                last_date = get_last_date(df)
+                future_dates =  generate_future_daily_dates(last_date, self.pred_length)
                 
                 results[name] = {
                     'success': True,
@@ -358,7 +346,7 @@ class ETFPricePredictor:
                     'predicted_change': (close_prices[-1] - close_prices[0]) / close_prices[0],
                     'confidence': 0.5,
                     'is_gpu_local': True,
-                    'latest_date': get_last_date(df).strftime('%Y/%m/%d')
+                    'latest_date': last_date.strftime('%Y/%m/%d')
                 }
                 valid_predictions.append(results[name])
                 weights.append(weight)
@@ -373,8 +361,8 @@ class ETFPricePredictor:
             for pred, w in zip(valid_predictions, normalized_weights):
                 ensemble_close += np.array(pred['close']) * w
             
-            last_date = df.index[-1]
-            future_dates = generate_future_date_strings(last_date, self.pred_length)
+            last_date = get_last_date(df)
+            future_dates =  generate_future_daily_dates(last_date, self.pred_length)
             
             results['ensemble'] = {
                 'success': True,
@@ -385,7 +373,7 @@ class ETFPricePredictor:
                 'model_weights': {pred.get('model', 'Unknown'): w 
                                  for pred, w in zip(valid_predictions, normalized_weights)},
                 'is_ensemble': True,
-                'latest_date': get_last_date(df).strftime('%Y/%m/%d')
+                'latest_date': last_date.strftime('%Y/%m/%d')
             }
         
         return results
@@ -728,21 +716,6 @@ class ETFPricePredictor:
         except Exception as e:
             print(f"⚠️ LoRA 加载失败: {e}")
 
-    def fine_tune(self, train_data: pd.DataFrame, output_dir: str = "./lora_etf_advisor"):
-        """使用 LoRA 微调预测模型"""
-        try:
-            tuner = ETFAdvisorLoRATuner(self.base_model_name)
-            tuner.load_model_and_tokenizer()
-            tuner.train_lora(train_data, output_dir)
-            
-            self.lora_path = Path(output_dir)
-            if self.lora_path.exists():
-                self.load_lora_adapter(str(self.lora_path))
-                
-        except ImportError as e:
-            print(f"LoRA 微调失败，请安装 peft: {e}")
-        except Exception as e:
-            print(f"微调过程出错: {e}")
             
     def save_model(self):
         """保存模型"""
@@ -978,8 +951,8 @@ class ETFPricePredictor:
                             pred_prices = pred_prices[:20]
                             
                             # ✅ 使用公共函数生成日期
-                            last_date = df.index[-1]
-                            future_dates = generate_future_date_strings(last_date, len(pred_prices))
+                            last_date = get_last_date(df)
+                            future_dates =  generate_future_daily_dates(last_date, len(pred_prices))
                             
                             return {
                                 'success': True,
@@ -1082,9 +1055,8 @@ class ETFPricePredictor:
                     if len(pred_prices) >= 20:
                         pred_prices = pred_prices[:20]
                         
-                        from .utils import generate_future_date_strings
-                        last_date = df.index[-1]
-                        future_dates = generate_future_date_strings(last_date, len(pred_prices))
+                        last_date = get_last_date(df)
+                        future_dates =  generate_future_daily_dates(last_date, len(pred_prices))
                         
                         return {
                             'success': True,

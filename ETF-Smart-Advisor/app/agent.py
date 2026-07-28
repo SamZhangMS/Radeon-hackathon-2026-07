@@ -10,6 +10,7 @@ from datetime import datetime
 import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import traceback
 
 from .llm_client import get_llm_client
 from .gpu_optimizer import ROCmGPUOptimizer
@@ -372,6 +373,7 @@ class ETFAdvisorAgent:
             advice = self.advisor.get_recommendation(symbol, df)
             return {"success": True, "data": advice}
         except Exception as e:
+            traceback.print_exc()
             return {"success": False, "error": str(e)}
     
     def get_prediction_sync(self, symbol: str, period: str = "1y") -> Dict:

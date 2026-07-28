@@ -8,62 +8,18 @@ import pandas as pd
 from typing import Any, Optional, Union, List
 from datetime import datetime, timedelta
 
-__all__ = [
-    'to_python',
-    # 'get_latest_date',
-    # 'get_latest_date_from_df_list',
-    'add_latest_date_to_data',
-    'add_timestamp_to_data',
-    'ensure_date_fields',
-    'get_quote_with_date',
-    'format_response',
-    # 日期生成函数
-    # 'parse_last_date',
-    'is_weekend',
-    'get_next_trading_day',
-    # 'generate_future_dates',
-    'generate_future_date_strings',
-    # 'get_trading_days_between',
-]
-
-def to_python(obj: Any) -> Any:
-    """转换 numpy 类型为 Python 原生类型，处理 NaN 和 Inf"""
-    if isinstance(obj, dict):
-        return {k: to_python(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [to_python(v) for v in obj]
-    elif isinstance(obj, tuple):
-        return tuple(to_python(v) for v in obj)
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        # ✅ 处理 NaN 和 Inf
-        if np.isnan(obj):
-            return None
-        if np.isinf(obj):
-            return None
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return to_python(obj.tolist())
-    elif isinstance(obj, pd.Series):
-        return to_python(obj.tolist())
-    elif isinstance(obj, pd.DataFrame):
-        return to_python(obj.to_dict('records'))
-    elif isinstance(obj, (np.bool_, bool)):
-        return bool(obj)
-    return obj
-
-def safe_float(value: Any, default: float = 0.0) -> float:
-    """安全转换为 float，处理 NaN 和 Inf"""
-    try:
-        if value is None:
-            return default
-        if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
-            return default
-        return float(value)
-    except (ValueError, TypeError):
-        return default
-    
+holiday_list_cn = [
+        '2026-01-01', # 元旦
+        '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', 
+        '2026-02-20', '2026-02-21', '2026-02-22', '2026-02-23', # 春节连休
+        '2026-04-04', '2026-04-05', '2026-04-06', # 清明
+        '2026-05-01', '2026-05-02', '2026-05-03', '2026-05-04', '2026-05-05', # 五一 (当前时间附近的假期)
+        '2026-06-19', '2026-06-20', '2026-06-21', # 端午
+        '2026-09-25', '2026-09-26', '2026-09-27', # 中秋
+        '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', 
+        '2026-10-05', '2026-10-06', '2026-10-07', # 国庆
+        '2027-01-01'
+    ]
 def get_last_date(df: pd.DataFrame) -> Any:
     """从 DataFrame 获取最后日期（兼容索引和列）"""
     if df is None or df.empty:
@@ -79,6 +35,42 @@ def get_last_date(df: pd.DataFrame) -> Any:
     
     return None
 
+
+def generate_future_daily_dates( start_date, pred_len, end_date=None):
+ 
+    def _to_timestamp(date_obj):
+        if not isinstance(date_obj, pd.Timestamp):
+            return pd.Timestamp(date_obj)
+        return date_obj
+    
+    start_date =  _to_timestamp(start_date)
+    
+    if end_date is not None:
+        end_date =  _to_timestamp(end_date)
+        # 计算从 start_date 到 end_date 之间的交易日数量
+        temp_date = start_date + timedelta(days=1)
+        max_days = 0
+        while temp_date <= end_date:
+            if temp_date.weekday() < 5 and temp_date.strftime('%Y-%m-%d') not in holiday_list_cn:
+                max_days += 1
+            temp_date += timedelta(days=1)
+        
+        actual_len = min(pred_len, max_days)
+    else:
+        actual_len = pred_len
+    
+    future_dates = []
+    current_date = start_date + timedelta(days=1)
+    
+    while len(future_dates) < actual_len:
+        if end_date is not None and current_date > end_date:
+            break
+            
+        if current_date.weekday() < 5 and current_date.strftime('%Y-%m-%d') not in holiday_list_cn:
+            future_dates.append(pd.Timestamp(current_date))
+        current_date += timedelta(days=1)
+    
+    return future_dates[:pred_len]
 
 # def get_latest_date(df: pd.DataFrame) -> str:
 #     """从 DataFrame 获取最新日期字符串"""
@@ -96,25 +88,6 @@ def get_last_date(df: pd.DataFrame) -> Any:
 #         return None
 
 
-def parse_date_to_datetime(date_val: Any) -> Optional[datetime]:
-    """将各种日期格式转换为 datetime"""
-    if date_val is None:
-        return None
-    
-    try:
-        if isinstance(date_val, pd.Timestamp):
-            return date_val.to_pydatetime()
-        elif isinstance(date_val, datetime):
-            return date_val
-        elif isinstance(date_val, (int, float)):
-            if date_val > 1e9:
-                return datetime.fromtimestamp(date_val)
-            return None
-        elif isinstance(date_val, str):
-            return pd.to_datetime(date_val).to_pydatetime()
-        return None
-    except Exception:
-        return None
     
 # def get_latest_date_from_df_list(df_list: list) -> str:
 #     """
@@ -152,101 +125,59 @@ def parse_date_to_datetime(date_val: Any) -> Optional[datetime]:
 #     return latest_date
 
 
-def add_latest_date_to_data(data: dict, df: Optional[pd.DataFrame] = None, 
-                            default: Optional[str] = None) -> dict:
-    """
-    向数据字典添加最新日期字段
+# def add_latest_date_to_data(data: dict, df: Optional[pd.DataFrame] = None, 
+#                             default: Optional[str] = None) -> dict:
+#     """
+#     向数据字典添加最新日期字段
     
-    Args:
-        data: 要添加日期的数据字典
-        df: 用于获取日期的 DataFrame
-        default: 默认日期
+#     Args:
+#         data: 要添加日期的数据字典
+#         df: 用于获取日期的 DataFrame
+#         default: 默认日期
     
-    Returns:
-        包含 latest_date 的数据字典
-    """
-    if 'latest_date' not in data:
-        data['latest_date'] = get_last_date(df)
-    return data
+#     Returns:
+#         包含 latest_date 的数据字典
+#     """
+#     if 'latest_date' not in data:
+#         data['latest_date'] = get_last_date(df)
+#     return data
 
 
-def add_timestamp_to_data(data: dict) -> dict:
-    """
-    向数据字典添加时间戳字段
+# def add_timestamp_to_data(data: dict) -> dict:
+#     """
+#     向数据字典添加时间戳字段
     
-    Args:
-        data: 要添加时间戳的数据字典
+#     Args:
+#         data: 要添加时间戳的数据字典
     
-    Returns:
-        包含 timestamp 的数据字典
-    """
-    if 'timestamp' not in data:
-        data['timestamp'] = datetime.now().isoformat()
-    return data
+#     Returns:
+#         包含 timestamp 的数据字典
+#     """
+#     if 'timestamp' not in data:
+#         data['timestamp'] = datetime.now().isoformat()
+#     return data
 
 
-def ensure_date_fields(data: dict, df: Optional[pd.DataFrame] = None, 
-                       add_timestamp: bool = True) -> dict:
-    """
-    确保数据字典包含日期字段
+# def ensure_date_fields(data: dict, df: Optional[pd.DataFrame] = None, 
+#                        add_timestamp: bool = True) -> dict:
+#     """
+#     确保数据字典包含日期字段
     
-    Args:
-        data: 数据字典
-        df: 用于获取日期的 DataFrame
-        add_timestamp: 是否添加时间戳
+#     Args:
+#         data: 数据字典
+#         df: 用于获取日期的 DataFrame
+#         add_timestamp: 是否添加时间戳
     
-    Returns:
-        包含日期字段的数据字典
-    """
-    add_latest_date_to_data(data, df)
-    if add_timestamp:
-        add_timestamp_to_data(data)
-    return data
+#     Returns:
+#         包含日期字段的数据字典
+#     """
+#     add_latest_date_to_data(data, df)
+#     if add_timestamp:
+#         add_timestamp_to_data(data)
+#     return data
 
 
-def get_quote_with_date(quote_data: dict) -> dict:
-    """
-    为行情数据添加日期信息
-    
-    Args:
-        quote_data: 行情数据
-    
-    Returns:
-        包含日期的行情数据
-    """
-    result = quote_data.copy() if quote_data else {}
-    result['latest_date'] = datetime.now().strftime('%Y-%m-%d')
-    if 'timestamp' not in result:
-        result['timestamp'] = datetime.now().isoformat()
-    return result
 
-
-def format_response(data: Any, df: Optional[pd.DataFrame] = None, 
-                    add_timestamp: bool = True) -> dict:
-    """
-    格式化 API 响应，自动添加日期字段
-    
-    Args:
-        data: 响应数据
-        df: 用于获取日期的 DataFrame
-        add_timestamp: 是否添加时间戳
-    
-    Returns:
-        包含日期字段的响应数据
-    """
-    if isinstance(data, dict):
-        ensure_date_fields(data, df, add_timestamp)
-    elif isinstance(data, list):
-        for item in data:
-            if isinstance(item, dict):
-                ensure_date_fields(item, None, add_timestamp)
-        return {
-            'data': data,
-            'count': len(data),
-            'latest_date': datetime.now().strftime('%Y-%m-%d'),
-            'timestamp': datetime.now().isoformat() if add_timestamp else None
-        }
-    return data
 
 
 # ============================================================
