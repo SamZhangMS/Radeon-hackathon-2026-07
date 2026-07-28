@@ -45,28 +45,20 @@ class ETFDataFetcher:
     def get_history(self, symbol: str, period: str = "1y") -> pd.DataFrame:
         """获取历史数据"""
         
-        base_dir=parquet_path
-        pattern = os.path.join(base_dir, "**", f"*{symbol}*.parquet")
+        # 查找文件
+        files = glob.glob(os.path.join(parquet_path, "**", f"*{symbol}*.parquet"), recursive=True)
+        if not files:
+            return pd.DataFrame()
         
-        # 2. 使用 glob 递归查找匹配的文件
-        matched_files = glob.glob(pattern, recursive=True)
+        # 读取最新文件
+        df = pd.read_parquet(max(files, key=os.path.getmtime))
         
-        if not matched_files:
-            print(f"⚠️ 警告: 在 {base_dir} 目录下未找到包含 '{symbol}' 的 parquet 文件<websource>source_group_web_2</websource>。")
-            return None
+        # 设置日期索引
+        if 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date').sort_index()
         
-        # 如果找到多个文件，这里默认读取第一个（您可以根据需要修改为读取最新修改的文件）
-        file_path = matched_files
-        print(f"✅ 找到文件: {file_path}")
-        
-        # 3. 使用 pandas 读取 parquet 文件
-        try:
-            df = pd.read_parquet(file_path)
-            print(f"📊 成功读取数据，共 {len(df)} 行, {len(df.columns)} 列<websource>source_group_web_3</websource>。")
-            return df
-        except Exception as e:
-            print(f"❌ 读取文件失败: {e}")
-            return None
+        return df
     def get_etf_list(self) -> List[str]:
         data_path = Path(parquet_path)
         if not data_path.exists():
