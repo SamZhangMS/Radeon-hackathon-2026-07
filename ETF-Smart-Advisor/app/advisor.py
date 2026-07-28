@@ -32,11 +32,18 @@ class InvestmentAdvisor:
         for col in df_clean.columns:
             if df_clean[col].isna().any():
                 df_clean[col] = df_clean[col].fillna(method='ffill').fillna(method='bfill').fillna(0)
+            if np.isinf(df_clean[col]).any():
+                df_clean[col] = df_clean[col].replace([np.inf, -np.inf], 0)
 
 
         # 1. 计算技术指标（用于上下文）
         indicators = self._calculate_indicators(df_clean)
         
+        for key, value in indicators.items():
+            if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+                indicators[key] = 0.0
+
+
         # 2. 获取价格预测
         prediction = self.predictor.predict(df_clean)
         if not prediction.get('success', False):
@@ -307,11 +314,29 @@ class InvestmentAdvisor:
     def _calculate_indicators(self, df: pd.DataFrame) -> Dict:
         """计算技术指标"""
         close = df['close']
-        
-        ma5 = float(close.rolling(5).mean().iloc[-1])
-        ma10 = float(close.rolling(10).mean().iloc[-1])
-        ma20 = float(close.rolling(20).mean().iloc[-1])
-        ma60 = float(close.rolling(60).mean().iloc[-1])
+        close = close.replace([np.inf, -np.inf], np.nan).fillna(method='ffill').fillna(method='bfill')
+        if close.isna().all():
+            return {
+                'price': 0.0,
+                'ma5': 0.0,
+                'ma10': 0.0,
+                'ma20': 0.0,
+                'ma60': 0.0,
+                'trend': 'sideways',
+                'rsi': 50.0,
+                'macd': 0.0,
+                'macd_signal': 0.0,
+                'macd_hist': 0.0,
+                'bb_upper': 0.0,
+                'bb_middle': 0.0,
+                'bb_lower': 0.0,
+                'volatility': 0.0,
+            }
+            
+        ma5 = float(close.rolling(5).mean().iloc[-1]) if not pd.isna(close.rolling(5).mean().iloc[-1]) else 0.0
+        ma10 = float(close.rolling(10).mean().iloc[-1]) if not pd.isna(close.rolling(10).mean().iloc[-1]) else 0.0
+        ma20 = float(close.rolling(20).mean().iloc[-1]) if not pd.isna(close.rolling(20).mean().iloc[-1]) else 0.0
+        ma60 = float(close.rolling(60).mean().iloc[-1]) if not pd.isna(close.rolling(60).mean().iloc[-1]) else 0.0
         
         if ma5 > ma20 > ma60:
             trend = 'up'

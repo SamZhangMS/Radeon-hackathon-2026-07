@@ -545,8 +545,12 @@ class ETFPricePredictor:
             features = features[-self.seq_length:]
         
         if np.isnan(features).any():
-            features = pd.DataFrame(features).fillna(method='ffill').fillna(method='bfill').fillna(0).values
- 
+            # 使用前向填充处理 NaN
+            features_df = pd.DataFrame(features)
+            features_df = features_df.fillna(method='ffill').fillna(method='bfill').fillna(0)
+            features = features_df.values
+        
+        # 检查无限值
         if np.isinf(features).any():
             features = np.where(np.isinf(features), 0, features)
         
@@ -555,7 +559,10 @@ class ETFPricePredictor:
         stds = features.std(axis=0)
         stds[stds == 0] = 1
         features_norm = (features - means) / stds
-        
+ 
+        if np.isnan(features_norm).any():
+            features_norm = np.nan_to_num(features_norm, nan=0.0)
+       
         self.norm_params['means'] = means
         self.norm_params['stds'] = stds
         

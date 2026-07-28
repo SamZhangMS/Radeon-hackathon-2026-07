@@ -27,11 +27,13 @@ __all__ = [
 ]
 
 def to_python(obj: Any) -> Any:
-    """转换 numpy 类型为 Python 原生类型，处理 NaN"""
+    """转换 numpy 类型为 Python 原生类型，处理 NaN 和 Inf"""
     if isinstance(obj, dict):
         return {k: to_python(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [to_python(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return tuple(to_python(v) for v in obj)
     elif isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, np.floating):
@@ -47,9 +49,21 @@ def to_python(obj: Any) -> Any:
         return to_python(obj.tolist())
     elif isinstance(obj, pd.DataFrame):
         return to_python(obj.to_dict('records'))
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
     return obj
 
-
+def safe_float(value: Any, default: float = 0.0) -> float:
+    """安全转换为 float，处理 NaN 和 Inf"""
+    try:
+        if value is None:
+            return default
+        if isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+    
 def get_latest_date(df: pd.DataFrame, default: Optional[str] = None) -> str:
     """从 DataFrame 索引获取最新日期"""
     if default is None:

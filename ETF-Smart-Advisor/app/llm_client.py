@@ -292,7 +292,6 @@ class LLMClient:
                 device_map="cuda:0", # "auto",
                 quantization_config=bnb_config,
                 low_cpu_mem_usage=True,
-                model_kwargs={"max_position_embeddings": self._max_seq_length},
             )
             
             self._transformers_loaded = True
