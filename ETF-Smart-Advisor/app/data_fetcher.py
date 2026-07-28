@@ -58,6 +58,7 @@ class ETFDataFetcher:
             df['date'] = pd.to_datetime(df['date'])
             df = df.set_index('date').sort_index()
         
+        print(f'get_history:{symbol}\n{df}')
         return df
     def get_etf_list(self) -> List[str]:
         data_path = Path(parquet_path)
