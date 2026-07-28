@@ -532,10 +532,18 @@ class ETFPricePredictor:
     # ============================================================
     # 合并后的通用方法
     # ============================================================
-    
+        
     def _prepare_data_tensor(self, df: pd.DataFrame) -> torch.Tensor:
-        """准备数据张量"""
+        """准备数据张量，自动截断过长序列"""
+        # 获取特征数据
         features = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
+        
+        # ✅ 如果数据量超过 seq_length，只取最近的数据
+        if len(features) > self.seq_length:
+            features = features[-self.seq_length:]
+            logger.debug(f"数据截断: {len(df)} -> {len(features)}")
+        
+        # 标准化
         means = features.mean(axis=0)
         stds = features.std(axis=0)
         stds[stds == 0] = 1

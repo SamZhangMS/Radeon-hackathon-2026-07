@@ -242,7 +242,7 @@ class LLMClient:
             if self._tokenizer.pad_token is None:
                 self._tokenizer.pad_token = self._tokenizer.eos_token
             
-            self._max_seq_length = 4096
+            self._max_seq_length = self._get_model_max_length()
             
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -258,7 +258,7 @@ class LLMClient:
                 device_map="cuda:0", # "auto",
                 quantization_config=bnb_config,
                 low_cpu_mem_usage=True,
-                max_position_embeddings=self._max_seq_length,
+                model_kwargs={"max_position_embeddings": self._max_seq_length},
             )
             
             self._transformers_loaded = True
@@ -411,6 +411,7 @@ class LLMClient:
             self.enable_thinking = enable_thinking
         
         try:
+            max_new_tokens = min(max_new_tokens, 512)
             # 尝试 vLLM
             if self.use_vllm:
                 # 同步调用异步方法

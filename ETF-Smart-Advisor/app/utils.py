@@ -78,15 +78,17 @@ def parse_date_to_datetime(date_val: Any) -> Optional[datetime]:
             return date_val.to_pydatetime()
         elif isinstance(date_val, datetime):
             return date_val
+        elif isinstance(date_val, pd.DatetimeIndex):
+            return date_val[0].to_pydatetime()
         elif isinstance(date_val, (int, float)):
-            # 判断是 Unix 时间戳还是数值
+            # 检查是否为无效时间戳（如 1970-01-01 附近）
+            if date_val < 1000000000:  # 小于 2001-09-09 的时间戳
+                return datetime.now()
+            # 判断是毫秒还是秒时间戳
             if date_val > 1e10:  # 毫秒时间戳
                 return datetime.fromtimestamp(date_val / 1000)
-            elif date_val > 1e9:  # 秒时间戳
+            else:  # 秒时间戳
                 return datetime.fromtimestamp(date_val)
-            else:
-                # 可能是其他数值，尝试作为天数
-                return datetime.now()
         elif isinstance(date_val, str):
             try:
                 return pd.to_datetime(date_val).to_pydatetime()
@@ -94,7 +96,7 @@ def parse_date_to_datetime(date_val: Any) -> Optional[datetime]:
                 return None
         else:
             return None
-    except:
+    except Exception as e:
         return None
     
 def get_latest_date_from_df_list(df_list: list) -> str:
