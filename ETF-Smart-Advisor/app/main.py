@@ -22,7 +22,7 @@ import numpy as np
 
 from .utils import (
     to_python, 
-    get_latest_date, 
+    get_last_date, 
     ensure_date_fields, 
     get_quote_with_date,
     format_response
@@ -360,7 +360,7 @@ async def batch_analysis(request: BatchAnalysisRequest):
                     "symbol": symbol,
                     "recommendation": advice,
                     "prediction": pred if pred.get('success') else None,
-                    "latest_date": get_latest_date(df)
+                    "latest_date": get_last_date(df).strftime('%Y/%m/%d')
                 })
         except Exception as e:
             results.append({

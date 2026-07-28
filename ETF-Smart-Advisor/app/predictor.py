@@ -9,9 +9,20 @@ from typing import Dict, List, Tuple, Optional, Union,Any
 from datetime import datetime, timedelta
 from .config import DEVICE, PREDICT_CONFIG, MODELS_DIR, LLM_CONFIG 
 from .lora_finetuner import ETFAdvisorLoRATuner
-from .utils import generate_future_dates, generate_future_date_strings, get_latest_date, parse_date_to_datetime
+from .utils import generate_future_dates, generate_future_date_strings, get_last_date, parse_date_to_datetime
 
-
+holiday_list_cn = [
+        '2026-01-01', # 元旦
+        '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', 
+        '2026-02-20', '2026-02-21', '2026-02-22', '2026-02-23', # 春节连休
+        '2026-04-04', '2026-04-05', '2026-04-06', # 清明
+        '2026-05-01', '2026-05-02', '2026-05-03', '2026-05-04', '2026-05-05', # 五一 (当前时间附近的假期)
+        '2026-06-19', '2026-06-20', '2026-06-21', # 端午
+        '2026-09-25', '2026-09-26', '2026-09-27', # 中秋
+        '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', 
+        '2026-10-05', '2026-10-06', '2026-10-07', # 国庆
+        '2027-01-01'
+    ]
 class TimeSeriesTransformer(nn.Module):
     """时间序列预测Transformer模型"""
     
@@ -347,7 +358,7 @@ class ETFPricePredictor:
                     'predicted_change': (close_prices[-1] - close_prices[0]) / close_prices[0],
                     'confidence': 0.5,
                     'is_gpu_local': True,
-                    'latest_date': get_latest_date(df)
+                    'latest_date': get_last_date(df).strftime('%Y/%m/%d')
                 }
                 valid_predictions.append(results[name])
                 weights.append(weight)
@@ -374,7 +385,7 @@ class ETFPricePredictor:
                 'model_weights': {pred.get('model', 'Unknown'): w 
                                  for pred, w in zip(valid_predictions, normalized_weights)},
                 'is_ensemble': True,
-                'latest_date': get_latest_date(df)
+                'latest_date': get_last_date(df).strftime('%Y/%m/%d')
             }
         
         return results
@@ -568,13 +579,13 @@ class ETFPricePredictor:
         
         return torch.tensor(features_norm, dtype=torch.float32).unsqueeze(0)
     
-    def _generate_future_dates(self, last_date: Any) -> List[datetime]:
+    def _generate_future_dates(self, df: pd.DataFrame) -> List[datetime]:
         """生成未来日期（跳过周末）"""
-        # 确保 last_date 是有效的日期
-        parsed_date = parse_date_to_datetime(last_date)
-        if parsed_date is None:
-            parsed_date = datetime.now()
-        return generate_future_dates(parsed_date, self.pred_length, skip_weekends=True)
+        last_date = get_last_date(df)
+        if last_date is None:
+            # 如果无法获取日期，使用当前日期
+            last_date = datetime.now()
+        return generate_future_dates(last_date, self.pred_length, skip_weekends=True)
     
     def _format_prediction_response(
         self,
@@ -595,7 +606,7 @@ class ETFPricePredictor:
         confidence = 1.96 * recent_vol * np.sqrt(self.pred_length / 252)
         
         # 获取最新日期
-        latest_date = get_latest_date(df)
+        latest_date = get_last_date(df)
         
         response = {
             'success': True,
@@ -606,7 +617,7 @@ class ETFPricePredictor:
             'close': close_prices.tolist(),
             'confidence': confidence,
             'predicted_change': (close_prices[-1] - close_prices[0]) / close_prices[0],
-            'latest_date': latest_date
+            'latest_date': latest_date.strftime('%Y/%m/%d')
         }
         
         if extra_data:

@@ -6,8 +6,7 @@ from datetime import datetime, timedelta
 
 from .predictor import ETFPricePredictor
 from .data_fetcher import ETFDataFetcher
-from .utils import get_latest_date
-
+from .utils import get_last_date
 
 class InvestmentAdvisor:
     """投资顾问引擎"""
@@ -254,8 +253,8 @@ class InvestmentAdvisor:
     
     def _get_latest_date(self, df: pd.DataFrame) -> str:
         """获取最新日期"""
-        from .utils import get_latest_date
-        return get_latest_date(df)
+        
+        return get_last_date(df).strftime('%Y/%m/%d')
     
     def get_top_recommendations(self, symbols: List[str] = None) -> Dict[str, List]:
         """获取 Top 3 推荐"""
