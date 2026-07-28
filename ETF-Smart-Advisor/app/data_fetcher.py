@@ -45,7 +45,7 @@ class ETFDataFetcher:
     def get_history(self, symbol: str, period: str = "1y") -> pd.DataFrame:
         """获取历史数据"""
         
-        base_dir=raw_data_path
+        base_dir=parquet_path
         pattern = os.path.join(base_dir, "**", f"*{symbol}*.parquet")
         
         # 2. 使用 glob 递归查找匹配的文件
@@ -70,12 +70,13 @@ class ETFDataFetcher:
     def get_etf_list(self) -> List[str]:
         """获取默认ETF列表"""
 
-        data_path = Path(raw_data_path)
+        data_path = Path(parquet_path)
         if not data_path.exists():
             return []
         
+        files = list(data_path.rglob("*"))
         stock_list = [
-            p.stem for p in data_path.iterdir() 
+            p.stem for p in files.iterdir() 
             if p.is_file() and p.suffix in ['.txt', '.csv', '.parquet']
         ]
         return stock_list
