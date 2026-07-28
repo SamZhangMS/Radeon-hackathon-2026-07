@@ -541,7 +541,6 @@ class ETFPricePredictor:
         # ✅ 如果数据量超过 seq_length，只取最近的数据
         if len(features) > self.seq_length:
             features = features[-self.seq_length:]
-            logger.debug(f"数据截断: {len(df)} -> {len(features)}")
         
         # 标准化
         means = features.mean(axis=0)
