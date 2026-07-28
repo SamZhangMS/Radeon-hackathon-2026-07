@@ -180,7 +180,7 @@ if [ "$USE_VLLM" = true ]; then
     
     # 等待 vLLM 启动
     echo ""
-    echo "⏳ Waiting for vLLM to be ready (max 120 seconds)..."
+    echo "⏳ Waiting for vLLM to be ready ..."
     MAX_WAIT=120
     WAIT_COUNT=0
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
