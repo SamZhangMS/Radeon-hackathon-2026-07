@@ -270,6 +270,7 @@ class InvestmentAdvisor:
         
         for symbol in symbols:
             df = self.fetcher.get_history(symbol, "6mo")
+            print(f'get_top_recommendations:{symbol}:\n{df.tail()}')
             if df.empty:
                 continue
             

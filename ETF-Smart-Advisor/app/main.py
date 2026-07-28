@@ -214,19 +214,23 @@ async def chat_with_session(request: ChatRequest):
 @app.post("/api/recommend", dependencies=[Depends(verify_token)])
 async def get_recommendation(request: SymbolRequest):
     """获取投资建议"""
-    result = agent.get_recommendation_sync(request.symbol, request.period)
-    if not result.get("success"):
-        raise HTTPException(400, result.get("error", "获取建议失败"))
-    
-    # ✅ 使用公共函数添加日期
-    data = result.get("data", {})
-    df = agent.fetcher.get_history(request.symbol, request.period)
-    ensure_date_fields(data, df)
-    
-    return to_python({
-        "status": "success",
-        "data": data
-    })
+    try:
+        result = agent.get_recommendation_sync(request.symbol, request.period)
+        if not result.get("success"):
+            raise HTTPException(400, result.get("error", "获取建议失败"))
+        
+        # ✅ 使用公共函数添加日期
+        data = result.get("data", {})
+        df = agent.fetcher.get_history(request.symbol, request.period)
+        ensure_date_fields(data, df)
+        
+        return to_python({
+            "status": "success",
+            "data": data
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
 
 @app.post("/api/predict", dependencies=[Depends(verify_token)])
 async def get_prediction(request: SymbolRequest):
