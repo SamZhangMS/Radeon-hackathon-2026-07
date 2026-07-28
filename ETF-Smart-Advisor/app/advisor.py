@@ -64,6 +64,7 @@ class InvestmentAdvisor:
             # 降级方案：使用规则引擎
             return self._get_rule_based_recommendation(symbol, df, indicators, pred)
             
+            
     def _get_llm_analysis(self, symbol: str, df: pd.DataFrame, 
                           indicators: Dict, prediction: Dict) -> Dict:
         """调用大模型进行投资分析"""
