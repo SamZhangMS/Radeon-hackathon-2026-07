@@ -44,16 +44,7 @@ def to_python(obj: Any) -> Any:
 
 
 def get_latest_date(df: pd.DataFrame, default: Optional[str] = None) -> str:
-    """
-    从 DataFrame 索引获取最新日期
-    
-    Args:
-        df: 包含日期索引的 DataFrame
-        default: 如果无法获取日期时的默认值
-    
-    Returns:
-        格式化的日期字符串 (YYYY-MM-DD)
-    """
+    """从 DataFrame 索引获取最新日期"""
     if default is None:
         default = datetime.now().strftime('%Y-%m-%d')
     
@@ -62,7 +53,9 @@ def get_latest_date(df: pd.DataFrame, default: Optional[str] = None) -> str:
     
     try:
         latest = df.index[-1]
-        if hasattr(latest, 'strftime'):
+        if isinstance(latest, pd.Timestamp):
+            return latest.strftime('%Y-%m-%d')
+        elif isinstance(latest, datetime):
             return latest.strftime('%Y-%m-%d')
         elif isinstance(latest, (int, float)):
             try:
@@ -74,7 +67,35 @@ def get_latest_date(df: pd.DataFrame, default: Optional[str] = None) -> str:
     except Exception:
         return default
 
-
+def parse_date_to_datetime(date_val: Any) -> Optional[datetime]:
+    """将各种日期格式转换为 datetime"""
+    if date_val is None:
+        return None
+    
+    try:
+        if isinstance(date_val, pd.Timestamp):
+            return date_val.to_pydatetime()
+        elif isinstance(date_val, datetime):
+            return date_val
+        elif isinstance(date_val, (int, float)):
+            # 判断是 Unix 时间戳还是数值
+            if date_val > 1e10:  # 毫秒时间戳
+                return datetime.fromtimestamp(date_val / 1000)
+            elif date_val > 1e9:  # 秒时间戳
+                return datetime.fromtimestamp(date_val)
+            else:
+                # 可能是其他数值，尝试作为天数
+                return datetime.now()
+        elif isinstance(date_val, str):
+            try:
+                return pd.to_datetime(date_val).to_pydatetime()
+            except:
+                return None
+        else:
+            return None
+    except:
+        return None
+    
 def get_latest_date_from_df_list(df_list: list) -> str:
     """
     从 DataFrame 列表中获取最新的日期
@@ -269,7 +290,7 @@ def get_next_trading_day(date: datetime) -> datetime:
 
 
 def generate_future_dates(
-    last_date: Union[pd.Timestamp, datetime, int, float, str],
+    last_date: Any,
     n_days: int = 20,
     skip_weekends: bool = True
 ) -> List[datetime]:
@@ -288,7 +309,13 @@ def generate_future_dates(
         return []
     
     # 解析日期
-    current = parse_last_date(last_date)
+    current = parse_date_to_datetime(last_date)
+    if current is None:
+        current = datetime.now()
+    
+    # 如果当前是周末，先移到下一个交易日
+    if skip_weekends and is_weekend(current):
+        current = get_next_trading_day(current)
     
     future_dates = []
     for _ in range(n_days):
@@ -319,6 +346,21 @@ def generate_future_date_strings(
     dates = generate_future_dates(last_date, n_days, skip_weekends)
     return [d.strftime(date_format) for d in dates]
 
+def get_trading_days_between(start_date: Any, end_date: Any) -> List[datetime]:
+    """获取两个日期之间的所有交易日"""
+    start = parse_date_to_datetime(start_date)
+    end = parse_date_to_datetime(end_date)
+    
+    if start is None or end is None:
+        return []
+    
+    trading_days = []
+    current = start
+    while current <= end:
+        if not is_weekend(current):
+            trading_days.append(current)
+        current += timedelta(days=1)
+    return trading_days
 
 def get_trading_days_between(start_date: datetime, end_date: datetime) -> List[datetime]:
     """

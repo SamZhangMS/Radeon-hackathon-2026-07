@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple, Optional, Union
 from datetime import datetime, timedelta
 from .config import DEVICE, PREDICT_CONFIG, MODELS_DIR, LLM_CONFIG 
 from .lora_finetuner import ETFAdvisorLoRATuner
-from .utils import generate_future_dates, generate_future_date_strings, parse_last_date
+from .utils import generate_future_dates, generate_future_date_strings, get_latest_date, parse_date_to_datetime
 
 
 class TimeSeriesTransformer(nn.Module):
@@ -302,13 +302,12 @@ class ETFPricePredictor:
             }
     
     def predict_gpu_local(self, df: pd.DataFrame) -> Dict:
-        """使用GPU本地模型进行预测（无需预训练）"""
+        """使用GPU本地模型进行预测"""
         if len(df) < self.seq_length:
             return {'error': '数据不足', 'success': False}
         
         from .config import DEVICE
         
-        # 准备数据
         features = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
         means = features.mean(axis=0)
         stds = features.std(axis=0)
@@ -321,7 +320,6 @@ class ETFPricePredictor:
         valid_predictions = []
         weights = []
         
-        # 运行每个GPU预测器
         for key, predictor_info in self.gpu_predictors.items():
             model = predictor_info["model"]
             name = predictor_info["name"]
@@ -336,38 +334,37 @@ class ETFPricePredictor:
                 pred_denorm = pred_np * stds + means
                 
                 close_prices = pred_denorm[:, 3]
+                
+                # 使用修复后的日期生成函数
                 last_date = df.index[-1]
                 future_dates = generate_future_date_strings(last_date, self.pred_length)
                 
                 results[name] = {
                     'success': True,
                     'model': name,
-                    'dates': [d.strftime('%Y-%m-%d') for d in future_dates],
+                    'dates': future_dates,
                     'close': close_prices.tolist(),
                     'predicted_change': (close_prices[-1] - close_prices[0]) / close_prices[0],
                     'confidence': 0.5,
-                    'is_gpu_local': True
+                    'is_gpu_local': True,
+                    'latest_date': get_latest_date(df)
                 }
                 valid_predictions.append(results[name])
                 weights.append(weight)
             except Exception as e:
                 results[name] = {'error': str(e), 'success': False}
         
-        # 生成集成预测
         if valid_predictions:
-            # 归一化权重
             total_weight = sum(weights)
             normalized_weights = [w / total_weight for w in weights]
             
-            # 加权平均
             ensemble_close = np.zeros(len(valid_predictions[0]['close']))
             for pred, w in zip(valid_predictions, normalized_weights):
                 ensemble_close += np.array(pred['close']) * w
- 
+            
             last_date = df.index[-1]
             future_dates = generate_future_date_strings(last_date, self.pred_length)
-
-           
+            
             results['ensemble'] = {
                 'success': True,
                 'dates': future_dates,
@@ -376,7 +373,8 @@ class ETFPricePredictor:
                 'confidence': 0.6,
                 'model_weights': {pred.get('model', 'Unknown'): w 
                                  for pred, w in zip(valid_predictions, normalized_weights)},
-                'is_ensemble': True
+                'is_ensemble': True,
+                'latest_date': get_latest_date(df)
             }
         
         return results
@@ -548,10 +546,13 @@ class ETFPricePredictor:
         
         return torch.tensor(features_norm, dtype=torch.float32).unsqueeze(0)
     
-    def _generate_future_dates(self, last_date: Union[pd.Timestamp, datetime, int, float]) -> List[datetime]:
+    def _generate_future_dates(self, last_date: Any) -> List[datetime]:
         """生成未来日期（跳过周末）"""
-        # 转换为 datetime
-        return generate_future_dates(last_date, self.pred_length, skip_weekends=True)
+        # 确保 last_date 是有效的日期
+        parsed_date = parse_date_to_datetime(last_date)
+        if parsed_date is None:
+            parsed_date = datetime.now()
+        return generate_future_dates(parsed_date, self.pred_length, skip_weekends=True)
     
     def _format_prediction_response(
         self,
@@ -567,7 +568,7 @@ class ETFPricePredictor:
         recent_vol = df['close'].pct_change().std() * np.sqrt(252)
         confidence = 1.96 * recent_vol * np.sqrt(self.pred_length / 252)
         
-        from .utils import get_latest_date
+        # 获取最新日期
         latest_date = get_latest_date(df)
         
         response = {
