@@ -5,7 +5,7 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Tuple, Optional, Union,Any
 from datetime import datetime, timedelta
 from .config import DEVICE, PREDICT_CONFIG, MODELS_DIR, LLM_CONFIG 
 from .lora_finetuner import ETFAdvisorLoRATuner

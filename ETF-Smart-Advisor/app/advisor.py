@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from .predictor import ETFPricePredictor
 from .data_fetcher import ETFDataFetcher
+from .utils import get_latest_date
 
 
 class InvestmentAdvisor:
