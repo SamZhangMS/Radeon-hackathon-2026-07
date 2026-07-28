@@ -57,12 +57,13 @@ class InvestmentAdvisor:
                 'target_price': llm_analysis.get('target_price', indicators['price'] * 1.05),
                 'stop_loss': llm_analysis.get('stop_loss', indicators['price'] * 0.95),
                 'llm_analysis': llm_analysis.get('analysis', ''),
-                'latest_date': self._get_latest_date(df)
+                'latest_date': self._get_latest_date(df),
+                'generatedby': 'LLM'
             }
         else:
             # 降级方案：使用规则引擎
-            # return self._get_rule_based_recommendation(symbol, df, indicators, pred)
-            pass
+            return self._get_rule_based_recommendation(symbol, df, indicators, pred)
+            
     def _get_llm_analysis(self, symbol: str, df: pd.DataFrame, 
                           indicators: Dict, prediction: Dict) -> Dict:
         """调用大模型进行投资分析"""
@@ -232,7 +233,8 @@ class InvestmentAdvisor:
             'risk_level': risk,
             'target_price': indicators['price'] * (1 + 0.05 * (score / 4)),
             'stop_loss': indicators['price'] * (1 - 0.03 * abs(score) / 4),
-            'latest_date': self._get_latest_date(df)
+            'latest_date': self._get_latest_date(df),
+            'generatedby':'rule_based engine'
         }
     
     def _get_latest_date(self, df: pd.DataFrame) -> str:
