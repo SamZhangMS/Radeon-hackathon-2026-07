@@ -315,31 +315,35 @@ async def get_top_recommendations():
 @app.post("/api/analyze", dependencies=[Depends(verify_token)])
 async def analyze_complete(request: AnalyzeRequest):
     """完整分析接口（多步骤任务规划）"""
-    if request.depth == "quick":
-        result = agent.get_recommendation_sync(request.symbol)
-        if not result.get("success"):
-            raise HTTPException(400, result.get("error", "分析失败"))
+    try:
+        if request.depth == "quick":
+            result = agent.get_recommendation_sync(request.symbol)
+            if not result.get("success"):
+                raise HTTPException(400, result.get("error", "分析失败"))
+            
+            # ✅ 使用公共函数添加日期
+            data = result.get("data", {})
+            df = agent.fetcher.get_history(request.symbol, "1y")
+            ensure_date_fields(data, df)
+            
+            return to_python({
+                "status": "success",
+                "symbol": request.symbol,
+                "depth": "quick",
+                "data": data
+            })
+        else:
+            result = await agent._analyze_complete(request.symbol)
+            return to_python(ensure_date_fields({
+                "status": "success",
+                "symbol": request.symbol,
+                "depth": "full",
+                "report": result
+            }))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         
-        # ✅ 使用公共函数添加日期
-        data = result.get("data", {})
-        df = agent.fetcher.get_history(request.symbol, "1y")
-        ensure_date_fields(data, df)
-        
-        return to_python({
-            "status": "success",
-            "symbol": request.symbol,
-            "depth": "quick",
-            "data": data
-        })
-    else:
-        result = await agent._analyze_complete(request.symbol)
-        return to_python(ensure_date_fields({
-            "status": "success",
-            "symbol": request.symbol,
-            "depth": "full",
-            "report": result
-        }))
-
 @app.post("/api/compare", dependencies=[Depends(verify_token)])
 async def compare_etfs(request: CompareRequest):
     """对比多个 ETF"""
