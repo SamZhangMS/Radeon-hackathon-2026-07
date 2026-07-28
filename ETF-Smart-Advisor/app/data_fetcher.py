@@ -68,15 +68,12 @@ class ETFDataFetcher:
             print(f"❌ 读取文件失败: {e}")
             return None
     def get_etf_list(self) -> List[str]:
-        """获取默认ETF列表"""
-
         data_path = Path(parquet_path)
         if not data_path.exists():
             return []
         
-        files = list(data_path.rglob("*"))
-        stock_list = [
-            p.stem for p in files.iterdir() 
+        return [
+            p.stem 
+            for p in data_path.rglob("*") 
             if p.is_file() and p.suffix in ['.txt', '.csv', '.parquet']
         ]
-        return stock_list
