@@ -99,12 +99,7 @@ if [ ! -d "$MODEL_PATH" ]; then
     exit 1
 else
     echo "  ✅ Model exists at: $MODEL_PATH"
-        # 检查模型文件
-    if [ -f "$MODEL_PATH/model.safetensors" ] || [ -f "$MODEL_PATH/pytorch_model.bin" ]; then
-        echo "  ✅ Model files found"
-    else
-        echo "  ⚠️ Model files may be incomplete"
-    fi
+    
 fi
 
 # ============================================================
