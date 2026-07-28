@@ -27,7 +27,7 @@ __all__ = [
 ]
 
 def to_python(obj: Any) -> Any:
-    """转换 numpy 类型为 Python 原生类型"""
+    """转换 numpy 类型为 Python 原生类型，处理 NaN"""
     if isinstance(obj, dict):
         return {k: to_python(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -35,11 +35,18 @@ def to_python(obj: Any) -> Any:
     elif isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, np.floating):
+        # ✅ 处理 NaN 和 Inf
+        if np.isnan(obj):
+            return None
+        if np.isinf(obj):
+            return None
         return float(obj)
     elif isinstance(obj, np.ndarray):
-        return obj.tolist()
+        return to_python(obj.tolist())
     elif isinstance(obj, pd.Series):
-        return obj.tolist()
+        return to_python(obj.tolist())
+    elif isinstance(obj, pd.DataFrame):
+        return to_python(obj.to_dict('records'))
     return obj
 
 

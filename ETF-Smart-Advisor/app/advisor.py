@@ -27,11 +27,18 @@ class InvestmentAdvisor:
                 'latest_date': None
             }
         
+        df_clean = df.copy()
+        # 检查每列是否有 NaN
+        for col in df_clean.columns:
+            if df_clean[col].isna().any():
+                df_clean[col] = df_clean[col].fillna(method='ffill').fillna(method='bfill').fillna(0)
+
+
         # 1. 计算技术指标（用于上下文）
-        indicators = self._calculate_indicators(df)
+        indicators = self._calculate_indicators(df_clean)
         
         # 2. 获取价格预测
-        prediction = self.predictor.predict(df)
+        prediction = self.predictor.predict(df_clean)
         if not prediction.get('success', False):
             pred_trend = 0
             pred = None
@@ -40,7 +47,7 @@ class InvestmentAdvisor:
             pred = prediction
         
         # 3. 使用大模型生成完整投资建议
-        llm_analysis = self._get_llm_analysis(symbol, df, indicators, pred)
+        llm_analysis = self._get_llm_analysis(symbol, df_clean, indicators, pred)
         
         # 4. 如果大模型分析失败，使用规则引擎作为降级方案
         if llm_analysis.get('success', False):
@@ -57,12 +64,12 @@ class InvestmentAdvisor:
                 'target_price': llm_analysis.get('target_price', indicators['price'] * 1.05),
                 'stop_loss': llm_analysis.get('stop_loss', indicators['price'] * 0.95),
                 'llm_analysis': llm_analysis.get('analysis', ''),
-                'latest_date': self._get_latest_date(df),
+                'latest_date': self._get_latest_date(df_clean),
                 'generatedby': 'LLM'
             }
         else:
             # 降级方案：使用规则引擎
-            return self._get_rule_based_recommendation(symbol, df, indicators, pred)
+            return self._get_rule_based_recommendation(symbol, df_clean, indicators, pred)
             
             
     def _get_llm_analysis(self, symbol: str, df: pd.DataFrame, 

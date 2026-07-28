@@ -539,9 +539,16 @@ class ETFPricePredictor:
         # 获取特征数据
         features = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
         
+       
         # ✅ 如果数据量超过 seq_length，只取最近的数据
         if len(features) > self.seq_length:
             features = features[-self.seq_length:]
+        
+        if np.isnan(features).any():
+            features = pd.DataFrame(features).fillna(method='ffill').fillna(method='bfill').fillna(0).values
+ 
+        if np.isinf(features).any():
+            features = np.where(np.isinf(features), 0, features)
         
         # 标准化
         means = features.mean(axis=0)
@@ -572,6 +579,10 @@ class ETFPricePredictor:
         """格式化预测响应"""
         close_prices = pred_denorm[:, 3]
         
+        if np.isnan(close_prices).any():
+            close_prices = np.nan_to_num(close_prices, nan=0.0)
+
+
         # 计算置信区间
         recent_vol = df['close'].pct_change().std() * np.sqrt(252)
         confidence = 1.96 * recent_vol * np.sqrt(self.pred_length / 252)

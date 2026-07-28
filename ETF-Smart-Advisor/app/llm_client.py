@@ -16,7 +16,7 @@ import httpx
 import torch
 import logging
 from typing import Optional, List, Dict, Any, Union
-from transformers import AutoModelForCausalLM, AutoTokenizer,BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer,BitsAndBytesConfig,AutoConfig
 import bitsandbytes
 
 from .config import LLM_API_CONFIG
@@ -214,6 +214,40 @@ class LLMClient:
                 "backend": "vllm"
             }
     
+        
+    def _get_model_max_length(self) -> int:
+        """获取模型最大序列长度"""
+        try:
+
+            
+            # 从配置读取
+            config_max_len = LLM_API_CONFIG.get("max_model_len", 4096)
+            
+            # 尝试从模型配置获取
+            try:
+                config = AutoConfig.from_pretrained(self.model_path, trust_remote_code=True)
+                
+                # 检查各种可能的配置字段
+                max_len = getattr(config, 'max_position_embeddings', None)
+                if max_len is None:
+                    max_len = getattr(config, 'max_sequence_length', None)
+                if max_len is None:
+                    max_len = getattr(config, 'n_positions', None)
+                if max_len is None:
+                    max_len = config_max_len
+                
+                # 取较小值，避免超出模型限制
+                result = min(max_len, config_max_len)
+                logger.info(f"   模型最大序列长度: {result}")
+                return result
+            except Exception as e:
+                logger.warning(f"   无法从模型配置获取最大长度: {e}")
+                return config_max_len
+                
+        except Exception as e:
+            logger.warning(f"   获取模型最大长度失败: {e}")
+            return 4096
+        
     # ============================================================
     # Transformers 相关方法（降级方案）
     # ============================================================
