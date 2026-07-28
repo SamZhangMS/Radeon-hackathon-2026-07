@@ -288,7 +288,7 @@ class LLMClient:
             self._model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 trust_remote_code=True,
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
                 device_map="cuda:0", # "auto",
                 quantization_config=bnb_config,
                 low_cpu_mem_usage=True,

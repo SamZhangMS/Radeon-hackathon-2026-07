@@ -165,7 +165,7 @@ LLM_API_CONFIG = {
     "model_path": QWEN_MODEL_PATH,
     "model_name": QWEN_MODEL_NAME,
     "trust_remote_code": True,
-    "torch_dtype": "auto",
+    "dtype": "auto",
     "device_map": "auto",
     "enable_thinking": False,
     "max_model_len": 4096,  # ✅ 添加最大序列长度配置
