@@ -10,7 +10,7 @@ from .config import CACHE_DIR
 
 script_path = os.path.dirname(os.path.abspath(__file__))
 # raw_data_path=f'{script_path}/../data/1D'
-raw_data_path=f'{script_path}/../../datatemp/raw_data'
+raw_data_path=f'{script_path}/../../datatemp/raw_data/1D'
 
 class ETFDataFetcher:
     """ETF数据获取器"""
