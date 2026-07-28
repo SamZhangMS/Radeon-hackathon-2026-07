@@ -26,7 +26,7 @@ class ETFDataFetcher:
         """获取实时行情"""
         try:
             df = ak.stock_zh_a_spot_em()
-            row = df[df['代码'] == symbol]
+            row = df[df['代码'] == symbol[-6:]]
             if not row.empty:
                 return {
                     'symbol': symbol,
