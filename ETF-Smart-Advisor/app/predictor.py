@@ -336,7 +336,7 @@ class ETFPricePredictor:
                 
                 # 使用修复后的日期生成函数
                 last_date = get_last_date(df)
-                future_dates =  generate_future_daily_dates(last_date, self.pred_length)
+                future_dates =  generate_future_daily_dates(last_date, len(close_prices))
                 
                 results[name] = {
                     'success': True,
@@ -362,7 +362,7 @@ class ETFPricePredictor:
                 ensemble_close += np.array(pred['close']) * w
             
             last_date = get_last_date(df)
-            future_dates =  generate_future_daily_dates(last_date, self.pred_length)
+            future_dates =  generate_future_daily_dates(last_date, len(ensemble_close))
             
             results['ensemble'] = {
                 'success': True,
@@ -567,13 +567,7 @@ class ETFPricePredictor:
         
         return torch.tensor(features_norm, dtype=torch.float32).unsqueeze(0)
     
-    def _generate_future_dates(self, df: pd.DataFrame) -> List[datetime]:
-        """生成未来日期（跳过周末）"""
-        last_date = get_last_date(df)
-        if last_date is None:
-            # 如果无法获取日期，使用当前日期
-            last_date = datetime.now()
-        return generate_future_dates(last_date, self.pred_length, skip_weekends=True)
+
     
     def _format_prediction_response(
         self,
@@ -654,7 +648,7 @@ class ETFPricePredictor:
         
         # 5. 生成日期
         last_date = df.index[-1]
-        future_dates = self._generate_future_dates(last_date)
+        future_dates = generate_future_daily_dates(last_date, self.pred_length)
         
         # 6. 格式化响应
         return self._format_prediction_response(
@@ -695,7 +689,7 @@ class ETFPricePredictor:
         
         # 生成日期
         last_date = df.index[-1]
-        future_dates = self._generate_future_dates(last_date)
+        future_dates = generate_future_daily_dates(last_date, self.pred_length)
         
         # 格式化响应
         return self._format_prediction_response(pred_denorm, future_dates, df)
