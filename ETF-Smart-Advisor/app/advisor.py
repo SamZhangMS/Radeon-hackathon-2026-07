@@ -214,10 +214,10 @@ class InvestmentAdvisor:
         close = df['close']
         
         # 移动平均线
-        ma5 = close.rolling(5).mean().iloc[-1]
-        ma10 = close.rolling(10).mean().iloc[-1]
-        ma20 = close.rolling(20).mean().iloc[-1]
-        ma60 = close.rolling(60).mean().iloc[-1]
+        ma5 = float(close.rolling(5).mean().iloc[-1])  # 转换为 float
+        ma10 = float(close.rolling(10).mean().iloc[-1])
+        ma20 = float(close.rolling(20).mean().iloc[-1])
+        ma60 = float(close.rolling(60).mean().iloc[-1])
         
         # 趋势判断
         if ma5 > ma20 > ma60:
@@ -232,36 +232,36 @@ class InvestmentAdvisor:
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
-        rsi = 100 - (100 / (1 + rs)).iloc[-1]
+        rsi = float(100 - (100 / (1 + rs)).iloc[-1])  # 转换为 float
         
         # MACD
         exp12 = close.ewm(span=12, adjust=False).mean()
         exp26 = close.ewm(span=26, adjust=False).mean()
         macd = exp12 - exp26
         signal = macd.ewm(span=9, adjust=False).mean()
-        macd_hist = (macd - signal).iloc[-1]
+        macd_hist = float((macd - signal).iloc[-1])  # 转换为 float
         
         # 布林带
-        bb_middle = close.rolling(20).mean().iloc[-1]
-        bb_std = close.rolling(20).std().iloc[-1]
+        bb_middle = float(close.rolling(20).mean().iloc[-1])  # 转换为 float
+        bb_std = float(close.rolling(20).std().iloc[-1])      # 转换为 float
         bb_upper = bb_middle + 2 * bb_std
         bb_lower = bb_middle - 2 * bb_std
         
         return {
-            'price': close.iloc[-1],
+            'price': float(close.iloc[-1]),  # 转换为 float
             'ma5': ma5,
             'ma10': ma10,
             'ma20': ma20,
             'ma60': ma60,
             'trend': trend,
             'rsi': rsi,
-            'macd': macd.iloc[-1],
-            'macd_signal': signal.iloc[-1],
+            'macd': float(macd.iloc[-1]),    # 转换为 float
+            'macd_signal': float(signal.iloc[-1]),  # 转换为 float
             'macd_hist': macd_hist,
             'bb_upper': bb_upper,
             'bb_middle': bb_middle,
             'bb_lower': bb_lower,
-            'volatility': close.pct_change().std() * np.sqrt(252),
+            'volatility': float(close.pct_change().std() * np.sqrt(252)),  # 转换为 float
         }
     
     def _assess_risk(self, df: pd.DataFrame) -> str:

@@ -308,6 +308,7 @@ class LLMClient:
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                     use_cache=True,
+                    num_beams=1,  # 使用贪婪解码，减少显存使用
                     **kwargs
                 )
             
