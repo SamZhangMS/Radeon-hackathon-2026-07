@@ -14,7 +14,6 @@ import traceback
 import torch
 from .llm_client import get_llm_client
 from .feedback_learning import FeedbackLearning
-from .lightweight_adapter import LightweightAdapter
 from .config import (
     AGENT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT_EXTENDED,
     MEMORY_CONFIG, MODELS_DIR, MILVUS_CONFIG
@@ -150,9 +149,6 @@ class ETFAdvisorAgent:
         # 反馈学习
         self.feedback_learning = FeedbackLearning()
         
-        # 轻量化适配器
-        self.lightweight_adapter = LightweightAdapter()
-        
         # 数据获取
         self.fetcher = ETFDataFetcher()
         
@@ -231,14 +227,7 @@ class ETFAdvisorAgent:
                 {"message_length": len(message)}
             )
         
-        # 2. 资源检查
-        resource_status = self.lightweight_adapter.get_resource_report()
-        if resource_status.get('cpu_percent', 0) > 80:
-            return {
-                "response": "⚠️ 系统负载较高，建议稍后再试",
-                "success": False,
-                "session_id": session_id
-            }
+
         
         # 3. 意图识别
         message_lower = message.lower()
