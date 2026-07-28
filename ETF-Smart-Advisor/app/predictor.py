@@ -1,13 +1,16 @@
+# app/predictor.py - 重构后的代码
+
 import torch
 import torch.nn as nn
 import numpy as np
 import pandas as pd
 from pathlib import Path
-
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
 from datetime import datetime, timedelta
 from .config import DEVICE, PREDICT_CONFIG, MODELS_DIR, LLM_CONFIG 
 from .lora_finetuner import ETFAdvisorLoRATuner
+from .utils import generate_future_dates, generate_future_date_strings, parse_last_date
+
 
 class TimeSeriesTransformer(nn.Module):
     """时间序列预测Transformer模型"""
@@ -70,6 +73,7 @@ class TimeSeriesTransformer(nn.Module):
         x = x.view(-1, self.pred_length, self.input_size)
         return x
 
+
 class LSTMPredictor(nn.Module):
     """LSTM 时间序列预测模型 - 作为第二种预测模型"""
     
@@ -121,6 +125,7 @@ class LSTMConfig:
         self.pred_length = pred_length
         self.dropout = dropout
 
+
 class LightLSTMPredictor(nn.Module):
     """轻量级LSTM预测模型 - 充分利用GPU算力"""
     
@@ -152,6 +157,7 @@ class LightLSTMPredictor(nn.Module):
         output = output.view(-1, self.pred_length, self.config.input_size)
         return output
 
+
 class TransformerLightConfig:
     def __init__(self, input_size=5, d_model=64, nhead=4, num_layers=2, seq_length=60, pred_length=20, dropout=0.1):
         self.input_size = input_size
@@ -161,6 +167,7 @@ class TransformerLightConfig:
         self.seq_length = seq_length
         self.pred_length = pred_length
         self.dropout = dropout
+
 
 class LightTransformerPredictor(nn.Module):
     """轻量级Transformer预测模型 - 充分利用GPU算力"""
@@ -199,6 +206,7 @@ class LightTransformerPredictor(nn.Module):
         x = x.view(-1, self.pred_length, self.config.input_size)
         return x
 
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super().__init__()
@@ -216,12 +224,12 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
-    
+
+
 class ETFPricePredictor:
     """ETF价格预测器"""
     
     def __init__(self, base_model_name: Optional[str] = None):
-        # 
         if base_model_name is None:
             base_model_name = LLM_CONFIG.get("model_name", "Qwen/mapfinben-qwen35-9b")
         self.base_model_name = base_model_name
@@ -329,7 +337,7 @@ class ETFPricePredictor:
                 
                 close_prices = pred_denorm[:, 3]
                 last_date = df.index[-1]
-                future_dates = [last_date + timedelta(days=i+1) for i in range(self.pred_length)]
+                future_dates = generate_future_date_strings(last_date, self.pred_length)
                 
                 results[name] = {
                     'success': True,
@@ -355,10 +363,14 @@ class ETFPricePredictor:
             ensemble_close = np.zeros(len(valid_predictions[0]['close']))
             for pred, w in zip(valid_predictions, normalized_weights):
                 ensemble_close += np.array(pred['close']) * w
-            
+ 
+            last_date = df.index[-1]
+            future_dates = generate_future_date_strings(last_date, self.pred_length)
+
+           
             results['ensemble'] = {
                 'success': True,
-                'dates': valid_predictions[0]['dates'],
+                'dates': future_dates,
                 'close': ensemble_close.tolist(),
                 'predicted_change': (ensemble_close[-1] - ensemble_close[0]) / ensemble_close[0],
                 'confidence': 0.6,
@@ -368,7 +380,7 @@ class ETFPricePredictor:
             }
         
         return results
-    
+
     
     async def call_llm_api(self, df: pd.DataFrame, llm_type: str = 'deepseek') -> Dict:
         """调用大模型API进行预测"""
@@ -470,7 +482,26 @@ class ETFPricePredictor:
         except Exception:
             pass
         
-        return results     
+        # 3. ✅ Qwen 预测
+        try:
+            qwen_pred = self.call_llm(df, llm_type='qwen_local', use_full_data=True)
+            if qwen_pred.get('success', False):
+                results['qwen'] = qwen_pred
+                results['all_predictions'].append(qwen_pred)
+        except Exception as e:
+            print(f"⚠️ Qwen 预测失败: {e}")
+            
+        # 4. 可选：远程 DeepSeek
+        try:
+            deepseek_pred = self.call_llm(df, llm_type='deepseek', use_full_data=False)
+            if deepseek_pred.get('success', False):
+                results['llm']['deepseek'] = deepseek_pred
+                results['all_predictions'].append(deepseek_pred)
+        except Exception as e:
+            print(f"⚠️ DeepSeek 预测失败: {e}")
+            
+        return results
+    
     def load_lstm_model(self):
         """加载 LSTM 模型"""
         try:
@@ -500,134 +531,13 @@ class ETFPricePredictor:
         torch.save(checkpoint, self.lstm_model_path)
         print(f"LSTM 模型已保存: {self.lstm_model_path}")
 
-    def predict_ensemble(self, df: pd.DataFrame) -> Dict:
-        """✅ 双模型集成预测（新增）
-        
-        使用 Transformer + LSTM 两种模型进行预测，取加权平均
-        """
-        if len(df) < self.seq_length:
-            return {
-                'error': f'数据不足，需要至少{self.seq_length}个交易日',
-                'success': False
-            }
-        
-        # 准备数据
-        data_tensor = self.prepare_data(df)
-        data_tensor = data_tensor.to(DEVICE)
-        
-        # 1. Transformer 预测
-        self.transformer_model.eval()
-        with torch.no_grad():
-            pred_trans = self.transformer_model(data_tensor)
-        
-        # 2. LSTM 预测
-        self.lstm_model.eval()
-        with torch.no_grad():
-            pred_lstm = self.lstm_model(data_tensor)
-        
-        # 3. 反标准化
-        pred_trans_np = pred_trans.cpu().numpy()[0]
-        pred_lstm_np = pred_lstm.cpu().numpy()[0]
-        means = self.norm_params['means']
-        stds = self.norm_params['stds']
-        
-        pred_trans_denorm = pred_trans_np * stds + means
-        pred_lstm_denorm = pred_lstm_np * stds + means
-        
-        # 4. 集成预测（加权平均，Transformer 权重 0.6，LSTM 权重 0.4）
-        ensemble_weight = 0.6
-        pred_ensemble = pred_trans_denorm * ensemble_weight + pred_lstm_denorm * (1 - ensemble_weight)
-        
-        # 生成日期
-        last_date = df.index[-1]
-        if isinstance(last_date, (int, float)):
-            try:
-                last_date = pd.to_datetime(last_date, unit='s')
-            except:
-                last_date = datetime.now()
-        elif not isinstance(last_date, pd.Timestamp):
-            last_date = datetime.now()
+    # ============================================================
+    # 合并后的通用方法
+    # ============================================================
     
-
-        future_dates = [last_date + timedelta(days=i+1) for i in range(self.pred_length)]
-        
-        # 计算置信区间
-        recent_vol = df['close'].pct_change().std() * np.sqrt(252)
-        confidence = 1.96 * recent_vol * np.sqrt(self.pred_length / 252)
-        
-        close_prices = pred_ensemble[:, 3]
-        
-        return {
-            'success': True,
-            'dates': [d.strftime('%Y-%m-%d') for d in future_dates],
-            'open': pred_ensemble[:, 0].tolist(),
-            'high': pred_ensemble[:, 1].tolist(),
-            'low': pred_ensemble[:, 2].tolist(),
-            'close': close_prices.tolist(),
-            'confidence': confidence,
-            'predicted_change': (close_prices[-1] - close_prices[0]) / close_prices[0],
-            # ✅ 新增：各模型独立预测结果
-            'transformer_prediction': {
-                'close': pred_trans_denorm[:, 3].tolist(),
-                'change': (pred_trans_denorm[-1, 3] - pred_trans_denorm[0, 3]) / pred_trans_denorm[0, 3]
-            },
-            'lstm_prediction': {
-                'close': pred_lstm_denorm[:, 3].tolist(),
-                'change': (pred_lstm_denorm[-1, 3] - pred_lstm_denorm[0, 3]) / pred_lstm_denorm[0, 3]
-            },
-            'ensemble_weight': ensemble_weight,
-        }
-
-    def load_lora_adapter(self, lora_path: str):
-        """加载微调后的 LoRA 适配器"""
-        try:
-            from peft import PeftModel
-            
-            if self.model is not None:
-                # 
-                if not hasattr(self.model, 'base_model'):
-                    self.model = PeftModel.from_pretrained(self.model, lora_path)
-                    print(f"LoRA 适配器已加载: {lora_path}")
-                else:
-                    print(f"ℹ模型已加载 LoRA，跳过重复加载")
-        except ImportError as e:
-            print(f"⚠️ peft 未安装，跳过 LoRA 加载: {e}")
-        except Exception as e:
-            print(f"⚠️ LoRA 加载失败: {e}")
-
-    def fine_tune(self, train_data: pd.DataFrame, output_dir: str = "./lora_etf_advisor"):
-        """使用 LoRA 微调预测模型"""
-        try:
-            # 使用 self.base_model_name（从 LLM_CONFIG 获取）
-            tuner = ETFAdvisorLoRATuner(self.base_model_name)
-            tuner.load_model_and_tokenizer()
-            tuner.train_lora(train_data, output_dir)
-            
-            # 微调完成后自动加载
-            self.lora_path = Path(output_dir)
-            if self.lora_path.exists():
-                self.load_lora_adapter(str(self.lora_path))
-                
-        except ImportError as e:
-            print(f"LoRA 微调失败，请安装 peft: {e}")
-        except Exception as e:
-            print(f"微调过程出错: {e}")
-            
-        
-    def save_model(self):
-        """保存模型"""
-        checkpoint = {
-            'model_state_dict': self.model.state_dict(),
-            'norm_params': self.norm_params,
-        }
-        torch.save(checkpoint, self.model_path)
-        print(f"模型已保存: {self.model_path}")
-    
-    def prepare_data(self, df: pd.DataFrame) -> torch.Tensor:
-        """准备输入数据"""
+    def _prepare_data_tensor(self, df: pd.DataFrame) -> torch.Tensor:
+        """准备数据张量"""
         features = df[['open', 'high', 'low', 'close', 'volume']].values.astype(np.float32)
-        
-        # 标准化
         means = features.mean(axis=0)
         stds = features.std(axis=0)
         stds[stds == 0] = 1
@@ -638,56 +548,29 @@ class ETFPricePredictor:
         
         return torch.tensor(features_norm, dtype=torch.float32).unsqueeze(0)
     
-    def predict(self, df: pd.DataFrame, use_ensemble: bool = True) -> Dict:
-        """预测未来价格（默认使用双模型集成）"""
-        if use_ensemble and self.lstm_model_path.exists():
-            return self.predict_ensemble(df)
-        else:
-            return self.predict_single(df)
+    def _generate_future_dates(self, last_date: Union[pd.Timestamp, datetime, int, float]) -> List[datetime]:
+        """生成未来日期（跳过周末）"""
+        # 转换为 datetime
+        return generate_future_dates(last_date, self.pred_length, skip_weekends=True)
     
-    def predict_single(self, df: pd.DataFrame) -> Dict:
-        """预测未来价格"""
-        if len(df) < self.seq_length:
-            return {
-                'error': f'数据不足，需要至少{self.seq_length}个交易日',
-                'success': False
-            }
-        
-        # 准备数据
-        data_tensor = self.prepare_data(df)
-        model_dtype = next(self.model.parameters()).dtype
-        data_tensor = data_tensor.to(DEVICE).to(model_dtype)
-        
-        # 预测
-        self.model.eval()
-        with torch.no_grad():
-            pred = self.model(data_tensor)
-        
-        # 反标准化
-        pred_np = pred.cpu().numpy()[0]
-        means = self.norm_params['means']
-        stds = self.norm_params['stds']
-        pred_denorm = pred_np * stds + means
-        
-        # 生成日期
-        last_date = df.index[-1]
-        if isinstance(last_date, (int, float)):
-            try:
-                last_date = pd.to_datetime(last_date, unit='s')
-            except:
-                last_date = datetime.now()
-        elif not isinstance(last_date, pd.Timestamp):
-            last_date = datetime.now()
-        
-        future_dates = [last_date + timedelta(days=i+1) for i in range(self.pred_length)]
+    def _format_prediction_response(
+        self,
+        pred_denorm: np.ndarray,
+        future_dates: List[datetime],
+        df: pd.DataFrame,
+        extra_data: Optional[Dict] = None
+    ) -> Dict:
+        """格式化预测响应"""
+        close_prices = pred_denorm[:, 3]
         
         # 计算置信区间
         recent_vol = df['close'].pct_change().std() * np.sqrt(252)
         confidence = 1.96 * recent_vol * np.sqrt(self.pred_length / 252)
         
-        close_prices = pred_denorm[:, 3]
+        from .utils import get_latest_date
+        latest_date = get_latest_date(df)
         
-        return {
+        response = {
             'success': True,
             'dates': [d.strftime('%Y-%m-%d') for d in future_dates],
             'open': pred_denorm[:, 0].tolist(),
@@ -696,7 +579,161 @@ class ETFPricePredictor:
             'close': close_prices.tolist(),
             'confidence': confidence,
             'predicted_change': (close_prices[-1] - close_prices[0]) / close_prices[0],
+            'latest_date': latest_date
         }
+        
+        if extra_data:
+            response.update(extra_data)
+        
+        return response
+    
+    def _run_single_model_prediction(self, model: nn.Module, data_tensor: torch.Tensor) -> np.ndarray:
+        """运行单个模型预测"""
+        model.eval()
+        with torch.no_grad():
+            pred = model(data_tensor)
+        return pred.cpu().numpy()[0]
+    
+    def _denormalize_predictions(self, pred_np: np.ndarray) -> np.ndarray:
+        """反标准化预测结果"""
+        means = self.norm_params['means']
+        stds = self.norm_params['stds']
+        return pred_np * stds + means
+    
+    def predict_ensemble(self, df: pd.DataFrame) -> Dict:
+        """双模型集成预测"""
+        if len(df) < self.seq_length:
+            return {
+                'error': f'数据不足，需要至少{self.seq_length}个交易日',
+                'success': False
+            }
+        
+        # 准备数据
+        data_tensor = self._prepare_data_tensor(df)
+        data_tensor = data_tensor.to(DEVICE)
+        
+        # 1. Transformer 预测
+        pred_trans_np = self._run_single_model_prediction(self.transformer_model, data_tensor)
+        
+        # 2. LSTM 预测
+        pred_lstm_np = self._run_single_model_prediction(self.lstm_model, data_tensor)
+        
+        # 3. 反标准化
+        pred_trans_denorm = self._denormalize_predictions(pred_trans_np)
+        pred_lstm_denorm = self._denormalize_predictions(pred_lstm_np)
+        
+        # 4. 集成预测（加权平均，Transformer 权重 0.6，LSTM 权重 0.4）
+        ensemble_weight = 0.6
+        pred_ensemble = pred_trans_denorm * ensemble_weight + pred_lstm_denorm * (1 - ensemble_weight)
+        
+        # 5. 生成日期
+        last_date = df.index[-1]
+        future_dates = self._generate_future_dates(last_date)
+        
+        # 6. 格式化响应
+        return self._format_prediction_response(
+            pred_ensemble,
+            future_dates,
+            df,
+            extra_data={
+                'transformer_prediction': {
+                    'close': pred_trans_denorm[:, 3].tolist(),
+                    'change': (pred_trans_denorm[-1, 3] - pred_trans_denorm[0, 3]) / pred_trans_denorm[0, 3]
+                },
+                'lstm_prediction': {
+                    'close': pred_lstm_denorm[:, 3].tolist(),
+                    'change': (pred_lstm_denorm[-1, 3] - pred_lstm_denorm[0, 3]) / pred_lstm_denorm[0, 3]
+                },
+                'ensemble_weight': ensemble_weight
+            }
+        )
+    
+    def predict_single(self, df: pd.DataFrame) -> Dict:
+        """单个模型预测"""
+        if len(df) < self.seq_length:
+            return {
+                'error': f'数据不足，需要至少{self.seq_length}个交易日',
+                'success': False
+            }
+        
+        # 准备数据
+        data_tensor = self._prepare_data_tensor(df)
+        model_dtype = next(self.model.parameters()).dtype
+        data_tensor = data_tensor.to(DEVICE).to(model_dtype)
+        
+        # 预测
+        pred_np = self._run_single_model_prediction(self.model, data_tensor)
+        
+        # 反标准化
+        pred_denorm = self._denormalize_predictions(pred_np)
+        
+        # 生成日期
+        last_date = df.index[-1]
+        future_dates = self._generate_future_dates(last_date)
+        
+        # 格式化响应
+        return self._format_prediction_response(pred_denorm, future_dates, df)
+
+    def load_lora_adapter(self, lora_path: str):
+        """加载微调后的 LoRA 适配器"""
+        try:
+            from peft import PeftModel
+            
+            if self.model is not None:
+                if not hasattr(self.model, 'base_model'):
+                    self.model = PeftModel.from_pretrained(self.model, lora_path)
+                    print(f"LoRA 适配器已加载: {lora_path}")
+                else:
+                    print(f"ℹ 模型已加载 LoRA，跳过重复加载")
+        except ImportError as e:
+            print(f"⚠️ peft 未安装，跳过 LoRA 加载: {e}")
+        except Exception as e:
+            print(f"⚠️ LoRA 加载失败: {e}")
+
+    def fine_tune(self, train_data: pd.DataFrame, output_dir: str = "./lora_etf_advisor"):
+        """使用 LoRA 微调预测模型"""
+        try:
+            tuner = ETFAdvisorLoRATuner(self.base_model_name)
+            tuner.load_model_and_tokenizer()
+            tuner.train_lora(train_data, output_dir)
+            
+            self.lora_path = Path(output_dir)
+            if self.lora_path.exists():
+                self.load_lora_adapter(str(self.lora_path))
+                
+        except ImportError as e:
+            print(f"LoRA 微调失败，请安装 peft: {e}")
+        except Exception as e:
+            print(f"微调过程出错: {e}")
+            
+    def save_model(self):
+        """保存模型"""
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'norm_params': self.norm_params,
+        }
+        torch.save(checkpoint, self.model_path)
+        print(f"模型已保存: {self.model_path}")
+    
+    def prepare_data(self, df: pd.DataFrame) -> torch.Tensor:
+        """准备输入数据（保留兼容性）"""
+        return self._prepare_data_tensor(df)
+    
+    def predict(self, df: pd.DataFrame, use_ensemble: bool = True) -> Dict:
+        """预测未来价格（默认使用双模型集成）"""
+        if use_ensemble and self.lstm_model_path.exists():
+            result = self.predict_ensemble(df)
+        else:
+            result = self.predict_single(df)
+        
+        # 确保 latest_date 存在
+        if result.get('success', False) and 'latest_date' not in result:
+            if hasattr(df.index[-1], 'strftime'):
+                result['latest_date'] = df.index[-1].strftime('%Y-%m-%d')
+            else:
+                result['latest_date'] = str(df.index[-1])
+        
+        return result
     
     def train_lstm(self, df_list: List[pd.DataFrame], epochs: int = 50) -> Dict:
         """训练 LSTM 模型"""
@@ -815,6 +852,7 @@ class ETFPricePredictor:
             'final_loss': losses[-1]
         }
         
+
     def call_qwen(self, df: pd.DataFrame) -> Dict:
         """调用本地 Qwen 模型进行预测"""
         try:
@@ -822,31 +860,294 @@ class ETFPricePredictor:
             
             llm = get_llm_client()
             
-            # 准备数据摘要
-            last_price = float(df['close'].iloc[-1])
+            if len(df) < 30:
+                return {
+                    'success': False,
+                    'error': f'数据不足，需要至少 30 个交易日，当前只有 {len(df)} 个',
+                    'is_qwen': True
+                }
+            
+            # 准备数据
+            n_days = min(100, len(df))
+            recent_df = df.tail(n_days).copy()
+            
+            # 重置索引获取日期列
+            if recent_df.index.name is None:
+                recent_df = recent_df.reset_index()
+                recent_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume'][:len(recent_df.columns)]
+            else:
+                recent_df = recent_df.reset_index()
+            
+            # 格式化数据
+            data_rows = []
+            for _, row in recent_df.iterrows():
+                date_val = row[0] if isinstance(row[0], (pd.Timestamp, datetime, str)) else row['date']
+                date_str = date_val.strftime('%Y-%m-%d') if hasattr(date_val, 'strftime') else str(date_val)
+                
+                open_val = row[1] if len(row) > 1 else row['open']
+                high_val = row[2] if len(row) > 2 else row['high']
+                low_val = row[3] if len(row) > 3 else row['low']
+                close_val = row[4] if len(row) > 4 else row['close']
+                volume_val = row[5] if len(row) > 5 else row['volume']
+                
+                data_rows.append(
+                    f"{date_str} | O:{open_val:.4f} H:{high_val:.4f} "
+                    f"L:{low_val:.4f} C:{close_val:.4f} V:{volume_val:.0f}"
+                )
+            
+            data_str = "\n".join(data_rows)
+            
+            current_price = float(df['close'].iloc[-1])
+            price_high = float(df['high'].max())
+            price_low = float(df['low'].min())
+            
+            prompt = f"""你是一个专业的 ETF 技术分析师。请基于以下最近 {len(recent_df)} 个交易日的每日 OHLCV 数据，分析技术指标并预测未来 20 个交易日的收盘价。
+
+【数据统计】
+- 数据周期: {len(recent_df)} 个交易日
+- 当前价格: {current_price:.4f}
+- 期间最高: {price_high:.4f}
+- 期间最低: {price_low:.4f}
+
+【每日数据】
+{data_str}
+
+请分析技术指标（均线、RSI、MACD、布林带、成交量趋势等），然后预测未来 20 个交易日的收盘价。
+
+最终输出格式：以 JSON 数组格式返回 20 个预测价格，例如：[3.85, 3.88, 3.92, ...]"""
+
+            response = llm.generate_response(
+                messages=[{"role": "user", "content": prompt}],
+                max_new_tokens=800,
+                temperature=0.2,
+                enable_thinking=False
+            )
+            
+            # 解析 JSON 响应
+            import re
+            import json
+            
+            json_match = re.search(r'\[[\d.,\s]+\]', response)
+            if json_match:
+                try:
+                    pred_prices = json.loads(json_match.group())
+                    if len(pred_prices) >= 20:
+                        pred_prices = pred_prices[:20]
+                        
+                        # 过滤异常值
+                        pred_prices = [p for p in pred_prices if p > 0 and p < current_price * 2.5]
+                        if len(pred_prices) >= 20:
+                            pred_prices = pred_prices[:20]
+                            
+                            # ✅ 使用公共函数生成日期
+                            last_date = df.index[-1]
+                            future_dates = generate_future_date_strings(last_date, len(pred_prices))
+                            
+                            return {
+                                'success': True,
+                                'model': 'Qwen-Local',
+                                'dates': future_dates,
+                                'close': pred_prices,
+                                'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
+                                'confidence': 0.6,
+                                'is_qwen': True,
+                                'raw_response': response[:200] + "..." if len(response) > 200 else response
+                            }
+                except:
+                    pass
+            
+            return {
+                'success': False,
+                'error': '无法解析 Qwen 响应为有效的价格数组',
+                'raw_response': response[:500] if response else '',
+                'is_qwen': True
+            }
+            
+        except Exception as e:
+            return {'error': str(e), 'success': False, 'is_qwen': True}
+
+    def _build_llm_prompt(self, df: pd.DataFrame, use_full_data: bool = True) -> str:
+        """构建 LLM 提示词"""
+        current_price = float(df['close'].iloc[-1])
+        
+        if use_full_data:
+            n_days = min(100, len(df))
+            recent_df = df.tail(n_days).copy()
+            
+            if recent_df.index.name is None:
+                recent_df = recent_df.reset_index()
+                recent_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume'][:len(recent_df.columns)]
+            else:
+                recent_df = recent_df.reset_index()
+            
+            data_rows = []
+            for _, row in recent_df.iterrows():
+                date_val = row[0] if isinstance(row[0], (pd.Timestamp, datetime, str)) else row['date']
+                date_str = date_val.strftime('%Y-%m-%d') if hasattr(date_val, 'strftime') else str(date_val)
+                
+                open_val = row[1] if len(row) > 1 else row['open']
+                high_val = row[2] if len(row) > 2 else row['high']
+                low_val = row[3] if len(row) > 3 else row['low']
+                close_val = row[4] if len(row) > 4 else row['close']
+                volume_val = row[5] if len(row) > 5 else row['volume']
+                
+                data_rows.append(
+                    f"{date_str} | O:{open_val:.4f} H:{high_val:.4f} "
+                    f"L:{low_val:.4f} C:{close_val:.4f} V:{volume_val:.0f}"
+                )
+            
+            data_str = "\n".join(data_rows)
+            price_high = float(df['high'].max())
+            price_low = float(df['low'].min())
+            
+            return f"""你是一个专业的 ETF 技术分析师。请基于以下最近 {len(recent_df)} 个交易日的每日 OHLCV 数据，分析技术指标并预测未来 20 个交易日的收盘价。
+
+    【数据统计】
+    - 数据周期: {len(recent_df)} 个交易日
+    - 当前价格: {current_price:.4f}
+    - 期间最高: {price_high:.4f}
+    - 期间最低: {price_low:.4f}
+
+    【每日数据】
+    {data_str}
+
+    请分析技术指标（均线、RSI、MACD、布林带、成交量趋势等），然后预测未来 20 个交易日的收盘价。
+
+    最终输出格式：以 JSON 数组格式返回 20 个预测价格，例如：[3.85, 3.88, 3.92, ...]"""
+        else:
             ma5 = float(df['close'].rolling(5).mean().iloc[-1])
             ma20 = float(df['close'].rolling(20).mean().iloc[-1])
             volatility = float(df['close'].pct_change().std() * np.sqrt(252))
             
-            prompt = f"""基于以下ETF数据预测未来走势：
-    最新价格: {last_price:.3f}
+            return f"""基于以下ETF数据预测未来20天价格走势：
+    最新价格: {current_price:.3f}
     5日均线: {ma5:.3f}
     20日均线: {ma20:.3f}
     年化波动率: {volatility:.3f}
 
-    请给出未来20天的预测价格（以JSON数组格式返回）。"""
+    请输出20天的预测价格（以JSON数组格式），只返回价格数组。"""
 
-            response = llm.generate_response(
-                messages=[{"role": "user", "content": prompt}],
-                max_new_tokens=512,
-                enable_thinking=False
-            )
+    def _parse_llm_response(self, response: str, df: pd.DataFrame, model_name: str, is_local: bool = True) -> Dict:
+        """解析 LLM 响应"""
+        import re
+        import json
+        
+        current_price = float(df['close'].iloc[-1])
+        
+        json_match = re.search(r'\[[\d.,\s]+\]', response)
+        if json_match:
+            try:
+                pred_prices = json.loads(json_match.group())
+                if len(pred_prices) >= 20:
+                    pred_prices = pred_prices[:20]
+                    pred_prices = [p for p in pred_prices if p > 0 and p < current_price * 2.5]
+                    if len(pred_prices) >= 20:
+                        pred_prices = pred_prices[:20]
+                        
+                        from .utils import generate_future_date_strings
+                        last_date = df.index[-1]
+                        future_dates = generate_future_date_strings(last_date, len(pred_prices))
+                        
+                        return {
+                            'success': True,
+                            'model': model_name,
+                            'dates': future_dates,
+                            'close': pred_prices,
+                            'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
+                            'confidence': 0.6,
+                            'is_llm': True,
+                            'is_local': is_local,
+                            'raw_response': response[:200] + "..." if len(response) > 200 else response
+                        }
+            except:
+                pass
+        
+        return {
+            'success': False,
+            'error': '无法解析 LLM 响应为有效的价格数组',
+            'raw_response': response[:500] if response else '',
+            'is_llm': True,
+            'is_local': is_local
+        }
+
+    def call_llm(
+        self, 
+        df: pd.DataFrame, 
+        llm_type: str = 'qwen_local',
+        use_full_data: bool = True
+    ) -> Dict:
+        """
+        调用 LLM 进行预测（统一接口）
+        
+        Args:
+            df: 历史数据 DataFrame
+            llm_type: LLM 类型 ('qwen_local', 'deepseek', 'openai')
+            use_full_data: 是否使用完整历史数据（True=完整数据，False=摘要数据）
+        
+        Returns:
+            预测结果字典
+        """
+        from .config import LLM_API_CONFIG
+        import re
+        import json
+        import httpx
+        
+        try:
+            # 1. 准备数据
+            prompt = self._build_llm_prompt(df, use_full_data)
             
-            return {
-                'success': True,
-                'model': 'Qwen-Local',
-                'response': response,
-                'is_qwen': True
-            }
+            # 2. 根据类型调用不同后端
+            if llm_type == 'qwen_local':
+                # 本地 Qwen 推理
+                from .llm_client import get_llm_client
+                llm = get_llm_client()
+                
+                response = llm.generate_response(
+                    messages=[{"role": "user", "content": prompt}],
+                    max_new_tokens=800,
+                    temperature=0.2,
+                    enable_thinking=False
+                )
+                model_name = 'Qwen-Local'
+                is_llm = True
+                is_local = True
+                
+            elif llm_type in ['deepseek', 'openai']:
+                # 远程 API 调用
+                config = LLM_API_CONFIG.get('external', {}).get(llm_type)
+                if not config or not config.get('enabled', False):
+                    return {'error': f'LLM {llm_type} 未启用', 'success': False}
+                
+                async def _call_remote():
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        response = await client.post(
+                            config['api_base'],
+                            headers={
+                                "Authorization": f"Bearer {config['api_key']}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": config['model'],
+                                "messages": [{"role": "user", "content": prompt}],
+                                "temperature": 0.7
+                            }
+                        )
+                        return response.json()
+                
+                try:
+                    import asyncio
+                    result = asyncio.run(_call_remote())
+                    response = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+                    model_name = config.get('name', llm_type)
+                    is_llm = True
+                    is_local = False
+                except Exception as e:
+                    return {'error': str(e), 'success': False}
+            else:
+                return {'error': f'不支持的 LLM 类型: {llm_type}', 'success': False}
+            
+            # 3. 解析响应（通用逻辑）
+            return self._parse_llm_response(response, df, model_name, is_local)
+            
         except Exception as e:
             return {'error': str(e), 'success': False}

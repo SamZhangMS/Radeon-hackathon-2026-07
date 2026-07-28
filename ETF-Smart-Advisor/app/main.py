@@ -20,7 +20,13 @@ from pathlib import Path
 from fastapi.encoders import jsonable_encoder
 import numpy as np
 
-from .utils import to_python
+from .utils import (
+    to_python, 
+    get_latest_date, 
+    ensure_date_fields, 
+    get_quote_with_date,
+    format_response
+)
 from .agent import ETFAdvisorAgent
 from .config import BASE_DIR, DATA_DIR, API_KEY, API_PORT, LLM_API_CONFIG
 from .llm_client import get_llm_client
@@ -174,12 +180,11 @@ async def root():
 async def health():
     """健康检查（公开）"""
     status = agent.get_status()
-    return to_python({
+    return to_python(ensure_date_fields({
         "status": "healthy",
         "service": "ETF-Smart Advisor",
-        "timestamp": datetime.now().isoformat(),
         "details": status
-    })
+    }))
 
 # ============================================================
 # 核心 API
@@ -193,7 +198,7 @@ async def chat(request: ChatRequest):
         symbol=request.symbol,
         session_id=request.session_id
     )
-    return to_python(result)
+    return to_python(ensure_date_fields(result))
 
 @app.post("/api/chat/session", dependencies=[Depends(verify_token)])
 async def chat_with_session(request: ChatRequest):
@@ -204,7 +209,7 @@ async def chat_with_session(request: ChatRequest):
         symbol=request.symbol,
         session_id=session_id
     )
-    return to_python(result)
+    return to_python(ensure_date_fields(result))
 
 @app.post("/api/recommend", dependencies=[Depends(verify_token)])
 async def get_recommendation(request: SymbolRequest):
@@ -212,9 +217,15 @@ async def get_recommendation(request: SymbolRequest):
     result = agent.get_recommendation_sync(request.symbol, request.period)
     if not result.get("success"):
         raise HTTPException(400, result.get("error", "获取建议失败"))
+    
+    # ✅ 使用公共函数添加日期
+    data = result.get("data", {})
+    df = agent.fetcher.get_history(request.symbol, request.period)
+    ensure_date_fields(data, df)
+    
     return to_python({
         "status": "success",
-        "data": result.get("data")
+        "data": data
     })
 
 @app.post("/api/predict", dependencies=[Depends(verify_token)])
@@ -223,9 +234,15 @@ async def get_prediction(request: SymbolRequest):
     result = agent.get_prediction_sync(request.symbol, request.period)
     if not result.get("success"):
         raise HTTPException(400, result.get("error", "预测失败"))
+    
+    # ✅ 使用公共函数添加日期
+    data = result.get("data", {})
+    df = agent.fetcher.get_history(request.symbol, request.period)
+    ensure_date_fields(data, df)
+    
     return to_python({
         "status": "success",
-        "data": result.get("data")
+        "data": data
     })
 
 @app.post("/api/predict/ensemble", dependencies=[Depends(verify_token)])
@@ -234,9 +251,15 @@ async def get_ensemble_prediction(request: SymbolRequest):
     result = agent.get_prediction_sync(request.symbol, request.period)
     if not result.get("success"):
         raise HTTPException(400, result.get("error", "预测失败"))
+    
+    # ✅ 使用公共函数添加日期
+    data = result.get("data", {})
+    df = agent.fetcher.get_history(request.symbol, request.period)
+    ensure_date_fields(data, df)
+    
     return to_python({
         "status": "success",
-        "data": result.get("data")
+        "data": data
     })
 
 @app.get("/api/quote/{symbol}", dependencies=[Depends(verify_token)])
@@ -245,9 +268,14 @@ async def get_quote(symbol: str):
     result = agent.get_quote_sync(symbol)
     if not result.get("success"):
         raise HTTPException(404, result.get("error", f"未找到 {symbol}"))
+    
+    # ✅ 使用公共函数添加日期
+    data = result.get("data", {})
+    data = get_quote_with_date(data)
+    
     return to_python({
         "status": "success",
-        "data": result.get("data")
+        "data": data
     })
 
 @app.get("/api/etfs", dependencies=[Depends(verify_token)])
@@ -255,11 +283,11 @@ async def list_etfs():
     """列出可用 ETF"""
     try:
         etfs = agent.fetcher.get_etf_list()
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "etfs": etfs,
             "count": len(etfs)
-        })
+        }))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -269,9 +297,14 @@ async def get_top_recommendations():
     result = agent.get_top_recommendations_sync()
     if not result.get("success"):
         raise HTTPException(400, result.get("error", "获取推荐失败"))
+    
+    # ✅ 使用公共函数添加日期
+    data = result.get("data", {})
+    ensure_date_fields(data)
+    
     return to_python({
         "status": "success",
-        "data": result.get("data"),
+        "data": data,
         "timestamp": datetime.now().isoformat()
     })
 
@@ -282,30 +315,36 @@ async def analyze_complete(request: AnalyzeRequest):
         result = agent.get_recommendation_sync(request.symbol)
         if not result.get("success"):
             raise HTTPException(400, result.get("error", "分析失败"))
+        
+        # ✅ 使用公共函数添加日期
+        data = result.get("data", {})
+        df = agent.fetcher.get_history(request.symbol, "1y")
+        ensure_date_fields(data, df)
+        
         return to_python({
             "status": "success",
             "symbol": request.symbol,
             "depth": "quick",
-            "data": result.get("data")
+            "data": data
         })
     else:
         result = await agent._analyze_complete(request.symbol)
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "symbol": request.symbol,
             "depth": "full",
             "report": result
-        })
+        }))
 
 @app.post("/api/compare", dependencies=[Depends(verify_token)])
 async def compare_etfs(request: CompareRequest):
     """对比多个 ETF"""
     result = await agent._compare_etfs_str(','.join(request.symbols[:5]))
-    return to_python({
+    return to_python(ensure_date_fields({
         "status": "success",
         "result": result,
         "symbols": request.symbols[:5]
-    })
+    }))
 
 @app.post("/api/batch-analysis", dependencies=[Depends(verify_token)])
 async def batch_analysis(request: BatchAnalysisRequest):
@@ -320,19 +359,21 @@ async def batch_analysis(request: BatchAnalysisRequest):
                 results.append({
                     "symbol": symbol,
                     "recommendation": advice,
-                    "prediction": pred if pred.get('success') else None
+                    "prediction": pred if pred.get('success') else None,
+                    "latest_date": get_latest_date(df)
                 })
         except Exception as e:
             results.append({
                 "symbol": symbol,
-                "error": str(e)
+                "error": str(e),
+                "latest_date": datetime.now().strftime('%Y-%m-%d')
             })
     
-    return to_python({
+    return to_python(ensure_date_fields({
         "status": "success",
         "results": results,
         "count": len(results)
-    })
+    }))
 
 # ============================================================
 # 记忆管理 API
@@ -343,12 +384,12 @@ async def get_memory(session_id: str):
     """获取会话记忆"""
     if agent.memory:
         context = agent.memory.get_context(session_id)
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "session_id": session_id,
             "context": context
-        })
-    return to_python({"status": "error", "message": "记忆功能未启用"})
+        }))
+    return to_python(ensure_date_fields({"status": "error", "message": "记忆功能未启用"}))
 
 # ============================================================
 # RAG / 知识库 API
@@ -361,12 +402,12 @@ async def rag_search(request: SearchKnowledgeRequest):
         result = agent.search_knowledge_sync(request.query, request.top_k)
         if not result.get("success"):
             raise HTTPException(400, result.get("error", "搜索失败"))
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "query": request.query,
             "results": result.get("results", []),
             "count": result.get("count", 0)
-        })
+        }))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -379,11 +420,11 @@ async def rag_add(request: AddKnowledgeRequest):
             content=request.content,
             category=request.category
         )
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "id": item_id,
             "message": "知识已添加"
-        })
+        }))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -393,7 +434,7 @@ async def rag_delete(item_id: str):
     try:
         success = milvus_client.delete(item_id)
         if success:
-            return to_python({"status": "success", "message": "知识已删除"})
+            return to_python(ensure_date_fields({"status": "success", "message": "知识已删除"}))
         else:
             raise HTTPException(404, "知识不存在")
     except Exception as e:
@@ -404,7 +445,7 @@ async def rag_stats():
     """获取 RAG 统计信息"""
     try:
         stats = milvus_client.get_stats()
-        return to_python({"status": "success", "stats": stats})
+        return to_python(ensure_date_fields({"status": "success", "stats": stats}))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -413,7 +454,7 @@ async def rag_clear():
     """清空知识库"""
     try:
         milvus_client.delete_all()
-        return to_python({"status": "success", "message": "知识库已清空"})
+        return to_python(ensure_date_fields({"status": "success", "message": "知识库已清空"}))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -424,25 +465,26 @@ async def rag_clear():
 @app.get("/api/privacy/audit", dependencies=[Depends(verify_token)])
 async def get_audit_log():
     """获取审计日志（仅管理员）"""
-    return to_python(privacy_manager.get_audit_report())
+    report = privacy_manager.get_audit_report()
+    return to_python(ensure_date_fields(report))
 
 @app.post("/api/privacy/cleanup", dependencies=[Depends(verify_token)])
 async def cleanup_data():
     """清理过期数据"""
     privacy_manager.cleanup_old_data()
-    return to_python({"status": "success", "message": "数据清理完成"})
+    return to_python(ensure_date_fields({"status": "success", "message": "数据清理完成"}))
 
 @app.get("/api/privacy/status", dependencies=[Depends(verify_token)])
 async def get_privacy_status():
     """获取隐私保护状态"""
-    return to_python({
+    return to_python(ensure_date_fields({
         "status": "success",
         "enabled": privacy_manager.enabled,
         "retention_days": privacy_manager.retention_days,
         "anonymize": privacy_manager.anonymize,
         "local_only": privacy_manager.local_only,
-        "audit_entries": len(privacy_manager.audit_log),
-    })
+        "audit_entries": len(privacy_manager.audit_log)
+    }))
 
 # ============================================================
 # LoRA 微调 API
@@ -458,13 +500,13 @@ async def start_finetune(request: FineTuneRequest):
         
         agent.predictor.load_lora_adapter(request.output_dir)
         
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "message": "微调完成并已加载",
             "output_dir": request.output_dir
-        })
+        }))
     except Exception as e:
-        return to_python({"status": "error", "message": str(e)})
+        return to_python(ensure_date_fields({"status": "error", "message": str(e)}))
 
 @app.post("/api/finetune/upload", dependencies=[Depends(verify_token)])
 async def upload_finetune_data(file: UploadFile = File(...)):
@@ -474,10 +516,10 @@ async def upload_finetune_data(file: UploadFile = File(...)):
         content = await file.read()
         with open(data_path, 'wb') as f:
             f.write(content)
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "data_path": str(data_path)
-        })
+        }))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -506,14 +548,14 @@ async def lora_finetune(request: LoRAFineTuneRequest):
         tuner.load_model_and_tokenizer()
         tuner.train_lora(train_df, str(LORA_FINETUNE_CONFIG["output_dir"]))
         
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "message": "LoRA 微调完成",
             "samples": len(train_data),
             "output_dir": str(LORA_FINETUNE_CONFIG["output_dir"])
-        })
+        }))
     except Exception as e:
-        return to_python({"status": "error", "message": str(e)})
+        return to_python(ensure_date_fields({"status": "error", "message": str(e)}))
 
 # ============================================================
 # 系统状态 API
@@ -524,10 +566,10 @@ async def get_system_status():
     """获取系统状态"""
     try:
         status = agent.get_status()
-        return to_python({
+        return to_python(ensure_date_fields({
             "status": "success",
             "details": status
-        })
+        }))
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -551,5 +593,3 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
-    
-    
