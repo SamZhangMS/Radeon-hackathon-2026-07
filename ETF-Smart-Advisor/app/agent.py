@@ -11,10 +11,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 import traceback
-
+import torch
 from .llm_client import get_llm_client
-from .gpu_optimizer import ROCmGPUOptimizer
-from .stability_manager import StabilityManager
 from .feedback_learning import FeedbackLearning
 from .lightweight_adapter import LightweightAdapter
 from .config import (
@@ -148,13 +146,6 @@ class ETFAdvisorAgent:
             logger.info(f"   Transformers 已加载: {status.get('transformers_loaded', False)}")
         except Exception as e:
             logger.warning(f"⚠️ LLM 客户端初始化警告: {e}")
-        
-        # GPU 优化器
-        self.gpu_optimizer = ROCmGPUOptimizer()
-        
-        # 稳定性管理器
-        self.stability_manager = StabilityManager()
-        self.stability_manager.start()
         
         # 反馈学习
         self.feedback_learning = FeedbackLearning()
@@ -430,7 +421,7 @@ class ETFAdvisorAgent:
             "llm": llm_status,
             "milvus": milvus_stats,
             "memory": memory_stats,
-            "gpu": self.gpu_optimizer.get_performance_stats(),
+            "device":   torch.device("cuda" if torch.cuda.is_available() else "cpu"),
             "privacy": {
                 "enabled": self.privacy.enabled if self.privacy else False,
             }

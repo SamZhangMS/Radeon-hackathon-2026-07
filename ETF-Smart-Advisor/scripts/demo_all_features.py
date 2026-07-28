@@ -35,7 +35,6 @@ from app.llm_client import get_llm_client
 from app.data_fetcher import ETFDataFetcher
 from app.advisor import InvestmentAdvisor
 from app.predictor import ETFPricePredictor
-from app.gpu_optimizer import ROCmGPUOptimizer
 from app.feedback_learning import FeedbackLearning
 from app.privacy.privacy_manager import PrivacyManager
 
@@ -227,9 +226,6 @@ class FeatureDemo:
         print("  ├─ Predictor...")
         self.predictor = ETFPricePredictor()
         
-        # GPU Optimizer
-        print("  ├─ GPU Optimizer...")
-        self.gpu_optimizer = ROCmGPUOptimizer()
         
         # Feedback Learning
         print("  ├─ Feedback Learning...")
