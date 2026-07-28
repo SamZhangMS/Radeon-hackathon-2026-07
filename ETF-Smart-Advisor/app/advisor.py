@@ -31,7 +31,7 @@ class InvestmentAdvisor:
         # 检查每列是否有 NaN
         for col in df_clean.columns:
             if df_clean[col].isna().any():
-                df_clean[col] = df_clean[col].fillna(method='ffill').fillna(method='bfill').fillna(0)
+                df_clean[col] = df_clean[col].ffill().bfill().fillna(0)
             if np.isinf(df_clean[col]).any():
                 df_clean[col] = df_clean[col].replace([np.inf, -np.inf], 0)
 
@@ -314,7 +314,7 @@ class InvestmentAdvisor:
     def _calculate_indicators(self, df: pd.DataFrame) -> Dict:
         """计算技术指标"""
         close = df['close']
-        close = close.replace([np.inf, -np.inf], np.nan).fillna(method='ffill').fillna(method='bfill')
+        close = close.replace([np.inf, -np.inf], np.nan).ffill().bfill()
         if close.isna().all():
             return {
                 'price': 0.0,
