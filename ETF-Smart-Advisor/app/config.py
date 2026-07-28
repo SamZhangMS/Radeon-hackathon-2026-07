@@ -168,6 +168,7 @@ LLM_API_CONFIG = {
     "torch_dtype": "auto",
     "device_map": "auto",
     "enable_thinking": False,
+    "max_model_len": 4096,  # ✅ 添加最大序列长度配置
     
     # vLLM 推理配置
     "vllm": {

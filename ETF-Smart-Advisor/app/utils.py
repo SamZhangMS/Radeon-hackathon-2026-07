@@ -73,6 +73,7 @@ def parse_date_to_datetime(date_val: Any) -> Optional[datetime]:
         return None
     
     try:
+        print(f'parse_date_to_datetime:{date_val}')
         if isinstance(date_val, pd.Timestamp):
             return date_val.to_pydatetime()
         elif isinstance(date_val, datetime):
@@ -109,6 +110,7 @@ def get_latest_date_from_df_list(df_list: list) -> str:
     latest_date = None
     latest_dt = None
     
+    print(f'df_list:{df_list}')
     for df in df_list:
         if df is not None and not df.empty:
             try:

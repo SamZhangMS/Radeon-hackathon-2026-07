@@ -75,6 +75,7 @@ class ETFDataFetcher:
                     dtype={'date': str,'open': float,'high': float, 'low': float, 'close': float}
                     ,engine='python')
             df_raw['date'] = pd.to_datetime(df_raw['date'].astype(str) , format='%Y/%m/%d')
+            print(f'df_raw:{df_raw}')
             return df_raw
         except Exception as e:
             pass

@@ -242,6 +242,8 @@ class LLMClient:
             if self._tokenizer.pad_token is None:
                 self._tokenizer.pad_token = self._tokenizer.eos_token
             
+            self._max_seq_length = 4096
+            
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.bfloat16,
@@ -256,6 +258,7 @@ class LLMClient:
                 device_map="cuda:0", # "auto",
                 quantization_config=bnb_config,
                 low_cpu_mem_usage=True,
+                max_position_embeddings=self._max_seq_length,
             )
             
             self._transformers_loaded = True
@@ -327,14 +330,21 @@ class LLMClient:
                 enable_thinking=self.enable_thinking
             )
             
-            # Tokenize
-            inputs = tokenizer(text, return_tensors="pt").to(model.device)
+            max_total_length = getattr(self, '_max_seq_length', 4096)
             
+            # Tokenize
+            inputs = tokenizer(
+                text, 
+                return_tensors="pt",
+                truncation=True,
+                max_length=max_total_length - max_new_tokens  # 预留生成空间
+            ).to(model.device)
+                        
             # 生成
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=max_new_tokens,
+                    max_new_tokens=min(max_new_tokens, max_total_length - inputs['input_ids'].shape[1]),
                     temperature=temperature,
                     top_p=top_p,
                     do_sample=temperature > 0,
