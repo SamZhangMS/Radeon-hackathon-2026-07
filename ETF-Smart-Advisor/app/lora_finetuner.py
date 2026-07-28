@@ -101,14 +101,14 @@ class ETFAdvisorLoRATuner:
                     device_map=self.device_map,
                     trust_remote_code=True,
                     quantization_config=bnb_config,
-                    torch_dtype=torch.bfloat16
+                    dtype=torch.bfloat16
                 )
             else:
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.base_model_name,
                     device_map=self.device_map,
                     trust_remote_code=True,
-                    torch_dtype="auto"
+                    dtype="auto"
                 )
             print("✅ Model loaded successfully.")
         except Exception as e:
@@ -117,7 +117,7 @@ class ETFAdvisorLoRATuner:
                 self.base_model_name,
                 device_map="cpu",
                 trust_remote_code=True,
-                torch_dtype="auto"
+                dtype="auto"
             )
             print("✅ CPU 加载成功")
 
@@ -483,14 +483,14 @@ if __name__ == "__main__":
 #                     device_map=self.device_map,
 #                     trust_remote_code=True,
 #                     quantization_config=bnb_config,
-#                     torch_dtype=torch.bfloat16
+#                     dtype=torch.bfloat16
 #                 )
 #             else:
 #                 self.model = AutoModelForCausalLM.from_pretrained(
 #                     self.base_model_name,
 #                     device_map=self.device_map,
 #                     trust_remote_code=True,
-#                     torch_dtype=torch.bfloat16
+#                     dtype=torch.bfloat16
 #                 )
 #             print("✅ Model and tokenizer loaded successfully.")
             
@@ -505,7 +505,7 @@ if __name__ == "__main__":
 #                 self.base_model_name,
 #                 device_map="cpu",
 #                 trust_remote_code=True,
-#                 torch_dtype=torch.bfloat16
+#                 dtype=torch.bfloat16
 #             )
 #             print("✅ CPU 加载成功")
 

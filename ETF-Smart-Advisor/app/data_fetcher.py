@@ -1,4 +1,6 @@
 import os
+import glob
+
 import akshare as ak
 import yfinance as yf
 import pandas as pd
@@ -10,6 +12,7 @@ from .config import CACHE_DIR
 
 script_path = os.path.dirname(os.path.abspath(__file__))
 raw_data_path=f'{script_path}/../data/1D'
+parquet_path=f'{script_path}/../data/history'
 # raw_data_path=f'{script_path}/../../datatemp/raw_data/1D'
 
 
@@ -42,45 +45,28 @@ class ETFDataFetcher:
     def get_history(self, symbol: str, period: str = "1y") -> pd.DataFrame:
         """获取历史数据"""
         
-        # 备用方案：使用akshare
+        base_dir=raw_data_path
+        pattern = os.path.join(base_dir, "**", f"*{symbol}*.parquet")
+        
+        # 2. 使用 glob 递归查找匹配的文件
+        matched_files = glob.glob(pattern, recursive=True)
+        
+        if not matched_files:
+            print(f"⚠️ 警告: 在 {base_dir} 目录下未找到包含 '{symbol}' 的 parquet 文件<websource>source_group_web_2</websource>。")
+            return None
+        
+        # 如果找到多个文件，这里默认读取第一个（您可以根据需要修改为读取最新修改的文件）
+        file_path = matched_files
+        print(f"✅ 找到文件: {file_path}")
+        
+        # 3. 使用 pandas 读取 parquet 文件
         try:
-            end = datetime.now()
-            start = end - timedelta(days=365)
-            df = ak.fund_etf_hist_em(
-                symbol=symbol,
-                start_date=start.strftime('%Y%m%d'),
-                end_date=end.strftime('%Y%m%d')
-            )
-            if not df.empty:
-                df = df.rename(columns={
-                    '日期': 'date',
-                    '开盘': 'open',
-                    '收盘': 'close',
-                    '最高': 'high',
-                    '最低': 'low',
-                    '成交量': 'volume'
-                })
-                df['Date'] = pd.to_datetime(df['date'])
-                df.set_index('date', inplace=True)
-                return df
-        except:
-            pass
-
-        try:
-            raw_data_file_path=raw_data_path+'/'+symbol+'.txt'
-            df_raw=pd.read_csv(raw_data_file_path
-                ,encoding='gb2312',
-                    skipfooter=1,
-                    names=['date','open', 'high', 'low', 'close', 'volume', 'money'],
-                    dtype={'date': str,'open': float,'high': float, 'low': float, 'close': float}
-                    ,engine='python')
-            df_raw['date'] = pd.to_datetime(df_raw['date'].astype(str) , format='%Y/%m/%d')
-            print(f'symbol:{symbol},{df_raw.dtypes}\ndf_raw:{df_raw}')
-            return df_raw
+            df = pd.read_parquet(file_path)
+            print(f"📊 成功读取数据，共 {len(df)} 行, {len(df.columns)} 列<websource>source_group_web_3</websource>。")
+            return df
         except Exception as e:
-            pass
-            
-        return pd.DataFrame()
+            print(f"❌ 读取文件失败: {e}")
+            return None
     def get_etf_list(self) -> List[str]:
         """获取默认ETF列表"""
 
@@ -90,6 +76,6 @@ class ETFDataFetcher:
         
         stock_list = [
             p.stem for p in data_path.iterdir() 
-            if p.is_file() and p.suffix in ['.txt', '.csv']
+            if p.is_file() and p.suffix in ['.txt', '.csv', '.parquet']
         ]
         return stock_list
