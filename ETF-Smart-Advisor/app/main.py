@@ -174,14 +174,16 @@ async def root():
 @app.get("/health")
 async def health():
     """健康检查（公开）"""
-    status = agent.get_status()
-    return {
-        "status": "healthy",
-        "service": "ETF-Smart Advisor",
-        "timestamp": datetime.now().isoformat(),
-        "details": status
-    }
-
+    try:
+        status = agent.get_status()
+        return {
+            "status": "healthy",
+            "service": "ETF-Smart Advisor",
+            "timestamp": datetime.now().isoformat(),
+            "details": status
+        }
+    except Exception as e:
+        traceback.print_exc()
 # ============================================================
 # 核心 API
 # ============================================================
@@ -189,24 +191,30 @@ async def health():
 @app.post("/api/chat", dependencies=[Depends(verify_token)])
 async def chat(request: ChatRequest):
     """聊天接口 - 支持多轮对话"""
-    result = await agent.chat(
-        message=request.message,
-        symbol=request.symbol,
-        session_id=request.session_id
-    )
-    return result
-
+    try:
+        result = await agent.chat(
+            message=request.message,
+            symbol=request.symbol,
+            session_id=request.session_id
+        )
+        return result
+    except Exception as e:
+        traceback.print_exc()
+        
 @app.post("/api/chat/session", dependencies=[Depends(verify_token)])
 async def chat_with_session(request: ChatRequest):
     """带会话记忆的聊天接口"""
-    session_id = request.session_id or f"session_{datetime.now().timestamp()}"
-    result = await agent.chat(
-        message=request.message,
-        symbol=request.symbol,
-        session_id=session_id
-    )
-    return result
-
+    try:
+        session_id = request.session_id or f"session_{datetime.now().timestamp()}"
+        result = await agent.chat(
+            message=request.message,
+            symbol=request.symbol,
+            session_id=session_id
+        )
+        return result
+    except Exception as e:
+        traceback.print_exc()
+        
 @app.post("/api/recommend", dependencies=[Depends(verify_token)])
 async def get_recommendation(request: SymbolRequest):
     """获取投资建议"""
@@ -226,39 +234,46 @@ async def get_recommendation(request: SymbolRequest):
 @app.post("/api/predict", dependencies=[Depends(verify_token)])
 async def get_prediction(request: SymbolRequest):
     """获取价格预测"""
-    result = agent.get_prediction_sync(request.symbol, request.period)
-    if not result.get("success"):
-        raise HTTPException(400, result.get("error", "预测失败"))
+    try:
+        result = agent.get_prediction_sync(request.symbol, request.period)
+        if not result.get("success"):
+            raise HTTPException(400, result.get("error", "预测失败"))
 
-    return {
-    "status": "success",
-    "data": result.get("data")
-    }
+        return {
+        "status": "success",
+        "data": result.get("data")
+        }
+    except Exception as e:
+        traceback.print_exc()
 @app.post("/api/predict/ensemble", dependencies=[Depends(verify_token)])
 async def get_ensemble_prediction(request: SymbolRequest):
     """获取双模型集成预测"""
-    result = agent.get_prediction_sync(request.symbol, request.period)
-    if not result.get("success"):
-        raise HTTPException(400, result.get("error", "预测失败"))
-    
-    return {
-        "status": "success",
-        "data": result.get("data")
-    }
-
+    try:
+        result = agent.get_prediction_sync(request.symbol, request.period)
+        if not result.get("success"):
+            raise HTTPException(400, result.get("error", "预测失败"))
+        
+        return {
+            "status": "success",
+            "data": result.get("data")
+        }
+    except Exception as e:
+        traceback.print_exc()
 
 @app.get("/api/quote/{symbol}", dependencies=[Depends(verify_token)])
 async def get_quote(symbol: str):
     """获取实时行情"""
-    result = agent.get_quote_sync(symbol)
-    if not result.get("success"):
-        raise HTTPException(404, result.get("error", f"未找到 {symbol}"))
-    
-    return {
-        "status": "success",
-        "data": result.get("data")
-    }
-
+    try:
+        result = agent.get_quote_sync(symbol)
+        if not result.get("success"):
+            raise HTTPException(404, result.get("error", f"未找到 {symbol}"))
+        
+        return {
+            "status": "success",
+            "data": result.get("data")
+        }
+    except Exception as e:
+        traceback.print_exc()
 
 
 @app.get("/api/etfs", dependencies=[Depends(verify_token)])
@@ -272,21 +287,24 @@ async def list_etfs():
             "count": len(etfs)
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 @app.get("/api/top-recommendations", dependencies=[Depends(verify_token)])
 async def get_top_recommendations():
     """获取 Top 3 买入/卖出/持有 ETF 推荐"""
-    result = agent.get_top_recommendations_sync()
-    if not result.get("success"):
-        raise HTTPException(400, result.get("error", "获取推荐失败"))
-    
-    return {
-        "status": "success",
-        "data": result.get("data"),
-        "timestamp": datetime.now().isoformat()
-    }
-
+    try:
+        result = agent.get_top_recommendations_sync()
+        if not result.get("success"):
+            raise HTTPException(400, result.get("error", "获取推荐失败"))
+        
+        return {
+            "status": "success",
+            "data": result.get("data"),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        traceback.print_exc()
 
 @app.post("/api/analyze", dependencies=[Depends(verify_token)])
 async def analyze_complete(request: AnalyzeRequest):
@@ -313,47 +331,50 @@ async def analyze_complete(request: AnalyzeRequest):
         }
 
     except Exception as e:
-        import traceback
         traceback.print_exc()
         
 @app.post("/api/compare", dependencies=[Depends(verify_token)])
 async def compare_etfs(request: CompareRequest):
     """对比多个 ETF"""
-    result = await agent._compare_etfs_str(','.join(request.symbols[:5]))
-    return {
-        "status": "success",
-        "result": result,
-        "symbols": request.symbols[:5]
-    }
-
+    try:
+        result = await agent._compare_etfs_str(','.join(request.symbols[:5]))
+        return {
+            "status": "success",
+            "result": result,
+            "symbols": request.symbols[:5]
+        }
+    except Exception as e:
+        traceback.print_exc()
 
 @app.post("/api/batch-analysis", dependencies=[Depends(verify_token)])
 async def batch_analysis(request: BatchAnalysisRequest):
     """批量分析多个 ETF"""
-    results = []
-    for symbol in request.symbols[:10]:
-        try:
-            df = agent.fetcher.get_history(symbol, "6mo")
-            if not df.empty:
-                advice = agent.advisor.get_recommendation(symbol, df)
-                pred = agent.predictor.predict(df, use_ensemble=True)
+    try:
+        results = []
+        for symbol in request.symbols[:10]:
+            try:
+                df = agent.fetcher.get_history(symbol, "6mo")
+                if not df.empty:
+                    advice = agent.advisor.get_recommendation(symbol, df)
+                    pred = agent.predictor.predict(df, use_ensemble=True)
+                    results.append({
+                        "symbol": symbol,
+                        "recommendation": advice,
+                        "prediction": pred if pred.get('success') else None
+                    })
+            except Exception as e:
                 results.append({
                     "symbol": symbol,
-                    "recommendation": advice,
-                    "prediction": pred if pred.get('success') else None
+                    "error": str(e)
                 })
-        except Exception as e:
-            results.append({
-                "symbol": symbol,
-                "error": str(e)
-            })
-    
-    return {
-        "status": "success",
-        "results": results,
-        "count": len(results)
-    }
-
+        
+        return {
+            "status": "success",
+            "results": results,
+            "count": len(results)
+        }
+    except Exception as e:
+        traceback.print_exc()
 
 # ============================================================
 # 记忆管理 API
@@ -362,15 +383,17 @@ async def batch_analysis(request: BatchAnalysisRequest):
 @app.get("/api/memory/{session_id}", dependencies=[Depends(verify_token)])
 async def get_memory(session_id: str):
     """获取会话记忆"""
-    if agent.memory:
-        context = agent.memory.get_context(session_id)
-        return {
-            "status": "success",
-            "session_id": session_id,
-            "context": context
-        }
-    return {"status": "error", "message": "记忆功能未启用"}
-
+    try:
+        if agent.memory:
+            context = agent.memory.get_context(session_id)
+            return {
+                "status": "success",
+                "session_id": session_id,
+                "context": context
+            }
+        return {"status": "error", "message": "记忆功能未启用"}
+    except Exception as e:
+        traceback.print_exc()
 # ============================================================
 # RAG / 知识库 API
 # ============================================================
@@ -378,6 +401,7 @@ async def get_memory(session_id: str):
 @app.post("/api/rag/search", dependencies=[Depends(verify_token)])
 async def rag_search(request: SearchKnowledgeRequest):
     """搜索知识库"""
+    
     try:
         result = agent.search_knowledge_sync(request.query, request.top_k)
         if not result.get("success"):
@@ -389,6 +413,7 @@ async def rag_search(request: SearchKnowledgeRequest):
             "count": result.get("count", 0)
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 @app.post("/api/rag/add", dependencies=[Depends(verify_token)])
@@ -406,6 +431,7 @@ async def rag_add(request: AddKnowledgeRequest):
             "message": "知识已添加"
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 @app.delete("/api/rag/delete/{item_id}", dependencies=[Depends(verify_token)])
@@ -418,6 +444,7 @@ async def rag_delete(item_id: str):
         else:
             raise HTTPException(404, "知识不存在")
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 @app.get("/api/rag/stats", dependencies=[Depends(verify_token)])
@@ -427,6 +454,7 @@ async def rag_stats():
         stats = milvus_client.get_stats()
         return {"status": "success", "stats": stats}
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 @app.post("/api/rag/clear", dependencies=[Depends(verify_token)])
@@ -436,6 +464,7 @@ async def rag_clear():
         milvus_client.delete_all()
         return {"status": "success", "message": "知识库已清空"}
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 # ============================================================
@@ -445,15 +474,23 @@ async def rag_clear():
 @app.get("/api/privacy/audit", dependencies=[Depends(verify_token)])
 async def get_audit_log():
     """获取审计日志（仅管理员）"""
-    report = privacy_manager.get_audit_report()
-    return report
-
+    try:
+        report = privacy_manager.get_audit_report()
+        return report
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        
 @app.post("/api/privacy/cleanup", dependencies=[Depends(verify_token)])
 async def cleanup_data():
     """清理过期数据"""
-    privacy_manager.cleanup_old_data()
-    return {"status": "success", "message": "数据清理完成"}
-
+    try:
+        privacy_manager.cleanup_old_data()
+        return {"status": "success", "message": "数据清理完成"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        
 @app.get("/api/privacy/status", dependencies=[Depends(verify_token)])
 async def get_privacy_status():
     """获取隐私保护状态"""
@@ -481,6 +518,7 @@ async def get_system_status():
             "details": status
         }
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(500, str(e))
 
 # ============================================================

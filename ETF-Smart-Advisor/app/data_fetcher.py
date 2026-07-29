@@ -25,20 +25,19 @@ class ETFDataFetcher:
     def get_etf_quote(self, symbol: str) -> Optional[Dict]:
         """获取实时行情"""
         try:
+            code = symbol[-6:] if symbol.startswith(('SH', 'SZ')) else symbol
             df = ak.stock_zh_a_spot_em()
-            row = df[df['代码'] == symbol[-6:]]
+            df['代码'] = df['代码'].astype(str)
+            row = df[df['代码']== code]
+            if  row.empty:    
+                df = ak.fund_etf_spot_em()
+                df['代码'] = df['代码'].astype(str)
+                row = df[df['代码']== code]
             if not row.empty:
-                return {
-                    'symbol': symbol,
-                    'name': row.iloc[0]['名称'],
-                    'price': float(row.iloc[0]['最新价']),
-                    'change': float(row.iloc[0]['涨跌幅']),
-                    'volume': float(row.iloc[0]['成交量']),
-                    'high': float(row.iloc[0]['最高']),
-                    'low': float(row.iloc[0]['最低']),
-                    'open': float(row.iloc[0]['今开']),
-                }
-        except:
+                row.to_json(orient='records', date_format='iso')
+                return row
+        except Exception as e:
+            print(e)
             pass
         return None
     
