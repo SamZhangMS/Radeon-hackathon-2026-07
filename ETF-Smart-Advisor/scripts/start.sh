@@ -244,12 +244,9 @@ cleanup() {
         # 1. 先通过 Python 停止 Milvus Lite
     echo "  Stopping Milvus Lite..."
     python3 -c "
-try:
-    from milvus import default_server
-    default_server.stop()
-    print('  ✅ Milvus Lite stopped')
-except Exception as e:
-    print(f'  ⚠️ Milvus stop error: {e}')
+from app.milvus_client import get_milvus_client
+get_milvus_client().stop()
+print('  ✅ Milvus Lite stopped')
 " 2>/dev/null || true
 
     # 2. 停止 vLLM
