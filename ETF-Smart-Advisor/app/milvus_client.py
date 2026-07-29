@@ -11,7 +11,21 @@ from datetime import datetime
 from pathlib import Path
 import os
 import logging
-from milvus import default_server
+
+# ========== 尝试导入 Milvus Lite ==========
+try:
+    from milvus_lite import MilvusLite
+    MILVUS_AVAILABLE = True
+except ImportError:
+    try:
+        from milvus import default_server
+        MilvusLite = None
+        MILVUS_AVAILABLE = True
+    except ImportError:
+        MilvusLite = None
+        MILVUS_AVAILABLE = False
+        logging.getLogger(__name__).warning("⚠️ milvus-lite 未安装，将使用内存模式")
+
 from sentence_transformers import SentenceTransformer
 from pymilvus import connections, Collection, CollectionSchema, FieldSchema, DataType, utility
 
@@ -27,7 +41,7 @@ class MilvusClient:
     """
     
     _instance = None
-    _server = None
+    _db = None
     _memory_mode = False
     
     def __new__(cls):
@@ -49,6 +63,10 @@ class MilvusClient:
         self.knowledge_dir = Path(knowledge_dir_str)
         self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         
+        # Milvus Lite 数据目录
+        self.milvus_data_dir = Path(BASE_DIR / "milvus_data")
+        self.milvus_data_dir.mkdir(parents=True, exist_ok=True)
+        
         # 加载 Embedding 模型
         try:
             self.embedder = SentenceTransformer(
@@ -65,10 +83,13 @@ class MilvusClient:
         self._load_knowledge()
         
         # 尝试启动 Milvus Lite
-        if MILVUS_CONFIG.get("enabled", True):
+        if MILVUS_CONFIG.get("enabled", True) and MILVUS_AVAILABLE:
             self._init_milvus_lite()
         else:
-            logger.info("📌 Milvus 已禁用，使用内存模式")
+            if not MILVUS_AVAILABLE:
+                logger.info("📌 Milvus Lite 未安装，使用内存模式")
+            else:
+                logger.info("📌 Milvus 已禁用，使用内存模式")
             self._memory_mode = True
         
         # 如果 Milvus Lite 启动失败，使用内存模式
@@ -83,16 +104,25 @@ class MilvusClient:
     def _init_milvus_lite(self):
         """初始化 Milvus Lite"""
         try:
-            # 尝试导入 Milvus Lite
+            # 尝试使用 MilvusLite
             try:
-                try:
-                    default_server.stop()
-                except:
-                    pass
-                
-                default_server.start()
-                self._server = default_server
-                logger.info("✅ Milvus Lite 已启动")
+                # 如果使用旧版 milvus 的 default_server
+                if MilvusLite is None:
+                    try:
+                        from milvus import default_server
+                        try:
+                            default_server.stop()
+                        except:
+                            pass
+                        default_server.start()
+                        self._db = default_server
+                        logger.info("✅ Milvus Lite (legacy) 已启动")
+                    except ImportError:
+                        raise ImportError("milvus-lite not available")
+                else:
+                    # 使用新版 milvus_lite
+                    self._db = MilvusLite(str(self.milvus_data_dir))
+                    logger.info(f"✅ Milvus Lite 已启动，数据目录: {self.milvus_data_dir}")
             except ImportError:
                 logger.warning("⚠️ milvus-lite 未安装")
                 logger.info("   💡 安装: pip install milvus-lite")
@@ -105,8 +135,6 @@ class MilvusClient:
             
             # 连接 Milvus
             try:
-                
-                
                 connections.connect(
                     alias="default",
                     host=self.host,
@@ -233,7 +261,6 @@ class MilvusClient:
             return
         
         try:
-            
             texts = [item['content'] for item in knowledge]
             embeddings = self.embedder.encode(texts, convert_to_numpy=True)
             
@@ -284,8 +311,6 @@ class MilvusClient:
             return self._search_memory(query, top_k)
         
         try:
-            
-            
             query_embedding = self.embedder.encode([query], convert_to_numpy=True)
             
             search_params = {
@@ -477,6 +502,7 @@ class MilvusClient:
             "total_knowledge": len(self.knowledge),
             "top_k": self.top_k,
             "memory_mode": self._memory_mode,
+            "data_dir": str(self.milvus_data_dir) if hasattr(self, 'milvus_data_dir') else None,
         }
         
         if not self._memory_mode:
@@ -490,12 +516,18 @@ class MilvusClient:
     
     def stop(self):
         """停止 Milvus Lite 服务"""
-        if self._server:
+        if self._db:
             try:
-                self._server.stop()
-                logger.info("✅ Milvus Lite 已停止")
-            except:
-                pass
+                # 如果是 MilvusLite 实例，调用 close()
+                if hasattr(self._db, 'close'):
+                    self._db.close()
+                    logger.info("✅ Milvus Lite 已停止")
+                # 如果是 legacy default_server
+                elif hasattr(self._db, 'stop'):
+                    self._db.stop()
+                    logger.info("✅ Milvus Lite (legacy) 已停止")
+            except Exception as e:
+                logger.warning(f"停止 Milvus 失败: {e}")
 
 
 # 全局单例
