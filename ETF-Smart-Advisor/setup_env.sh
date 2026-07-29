@@ -110,7 +110,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 # 11. Create data directories
 echo ""
 echo "📁 Creating data directories..."
-mkdir -p data/models data/cache knowledge
+mkdir -p  knowledge
 
 # 12. Download Qwen model
 echo ""
