@@ -66,6 +66,7 @@ echo "🔍 Checking Python dependencies..."
 MISSING_PKGS=""
 for pkg in torch transformers fastapi uvicorn pymilvus sentence-transformers; do
     if ! python -c "import $pkg" 2>/dev/null; then
+        source etfadvisorvenv/bin/activate
         MISSING_PKGS="$MISSING_PKGS $pkg"
     fi
 done
