@@ -72,7 +72,7 @@ class InvestmentAdvisor:
                 # 降级方案：使用规则引擎
                 return self._get_rule_based_recommendation(symbol, df_clean, indicators, pred)
         except Exception as e:
-            print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
+            print(f"get_recommendation error. Exception:{e}\nTrackback:{format_exception(e)}")
             
     def _get_llm_analysis(self, symbol: str, df: pd.DataFrame, 
                           indicators: Dict, prediction: Dict) -> Dict:

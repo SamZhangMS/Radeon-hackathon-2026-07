@@ -41,7 +41,7 @@ class ETFDataFetcher:
                 return row.to_dict(orient='records')[0]
                 
         except Exception as e:
-            print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
+            print(f"get_etf_quote error. Exception:{e}\nTrackback:{format_exception(e)}")
             
         return None
     

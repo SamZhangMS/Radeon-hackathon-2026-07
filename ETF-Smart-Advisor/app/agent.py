@@ -354,7 +354,7 @@ class ETFAdvisorAgent:
             advice = self.advisor.get_recommendation(symbol, df)
             return {"success": True, "data": advice}
         except Exception as e:
-            print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
+            print(f"get_recommendation_sync error. Exception:{e}\nTrackback:{format_exception(e)}")
             return {"success": False, "error": str(e)}
     
     def get_prediction_sync(self, symbol: str, period: str = "1y") -> Dict:
