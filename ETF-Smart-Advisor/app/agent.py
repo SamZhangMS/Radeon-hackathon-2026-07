@@ -410,7 +410,7 @@ class ETFAdvisorAgent:
             "llm": llm_status,
             "milvus": milvus_stats,
             "memory": memory_stats,
-            "device":   torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            "device":  "cuda" if torch.cuda.is_available() else "cpu",
             "privacy": {
                 "enabled": self.privacy.enabled if self.privacy else False,
             }

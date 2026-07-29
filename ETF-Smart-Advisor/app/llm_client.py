@@ -18,6 +18,7 @@ import logging
 from typing import Optional, List, Dict, Any, Union
 from transformers import AutoModelForCausalLM, AutoTokenizer,BitsAndBytesConfig,AutoConfig
 import bitsandbytes
+import requests
 
 from .config import LLM_API_CONFIG
 
@@ -630,7 +631,8 @@ class LLMClient:
         vllm_available = False
         if self.use_vllm:
             try:
-                vllm_available = asyncio.run(self.check_vllm_health())
+                response = requests.get(f"{self.vllm_base_url}/health", timeout=2)
+                vllm_available = response.status_code == 200
             except:
                 vllm_available = False
         
