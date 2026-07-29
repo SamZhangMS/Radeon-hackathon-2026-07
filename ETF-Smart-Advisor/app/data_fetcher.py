@@ -34,8 +34,9 @@ class ETFDataFetcher:
                 df['代码'] = df['代码'].astype(str)
                 row = df[df['代码']== code]
             if not row.empty:
-                row.to_json(orient='records', date_format='iso')
-                return row
+                print(f'get_etf_quote:{symbol}\n{row}')
+                return row.to_json(orient='records', date_format='iso')
+                
         except Exception as e:
             print(e)
             pass
