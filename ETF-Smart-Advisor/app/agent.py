@@ -23,6 +23,7 @@ from .advisor import InvestmentAdvisor
 from .predictor import ETFPricePredictor
 from .milvus_client import get_milvus_client
 from .privacy.privacy_manager import PrivacyManager
+from .utils import format_exception
 
 logger = logging.getLogger(__name__)
 
@@ -353,7 +354,7 @@ class ETFAdvisorAgent:
             advice = self.advisor.get_recommendation(symbol, df)
             return {"success": True, "data": advice}
         except Exception as e:
-            traceback.print_exc()
+            print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
             return {"success": False, "error": str(e)}
     
     def get_prediction_sync(self, symbol: str, period: str = "1y") -> Dict:

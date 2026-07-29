@@ -7,7 +7,7 @@ import traceback
 
 from .predictor import ETFPricePredictor
 from .data_fetcher import ETFDataFetcher
-from .utils import get_last_date
+from .utils import get_last_date,format_exception
 
 class InvestmentAdvisor:
     """投资顾问引擎"""
@@ -72,7 +72,7 @@ class InvestmentAdvisor:
                 # 降级方案：使用规则引擎
                 return self._get_rule_based_recommendation(symbol, df_clean, indicators, pred)
         except Exception as e:
-            traceback.print_exc()
+            print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
             
     def _get_llm_analysis(self, symbol: str, df: pd.DataFrame, 
                           indicators: Dict, prediction: Dict) -> Dict:

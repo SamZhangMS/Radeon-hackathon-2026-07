@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 from typing import Any, Optional, Union, List
 from datetime import datetime, timedelta
-
+import traceback
+import sys
 holiday_list_cn = [
         '2026-01-01', # 元旦
         '2026-02-15', '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', 
@@ -20,6 +21,20 @@ holiday_list_cn = [
         '2026-10-05', '2026-10-06', '2026-10-07', # 国庆
         '2027-01-01'
     ]
+
+
+def format_exception(e):
+    exception_list = traceback.format_stack()
+    exception_list = exception_list[:-2]
+    exception_list.extend(traceback.format_tb(sys.exc_info()[2]))
+    exception_list.extend(traceback.format_exception_only(sys.exc_info()[0], sys.exc_info()[1]))
+    
+    exception_str = "Traceback (most recent call last):\n"
+    exception_str += "".join(exception_list)
+    # Removing the last \n
+    exception_str = exception_str[:-1]
+
+    return exception_str
 def get_last_date(df: pd.DataFrame) -> Any:
     """从 DataFrame 获取最后日期（兼容索引和列）"""
     if df is None or df.empty:

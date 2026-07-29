@@ -27,6 +27,7 @@ from .config import BASE_DIR, DATA_DIR, API_KEY, API_PORT, LLM_API_CONFIG
 from .llm_client import get_llm_client
 from .milvus_client import get_milvus_client
 from .privacy.privacy_manager import PrivacyManager
+from .utils import format_exception
 
 # ============================================================
 # Pydantic 请求模型
@@ -48,10 +49,6 @@ class AnalyzeRequest(BaseModel):
     symbol: str = Field(..., description="ETF 代码")
     depth: str = Field("full", description="分析深度: quick, full")
 
-class FineTuneRequest(BaseModel):
-    data_path: str = Field(..., description="训练数据路径")
-    output_dir: str = Field("./data/models/lora_etf_advisor", description="输出目录")
-
 class AddKnowledgeRequest(BaseModel):
     title: str = Field(..., description="知识标题")
     content: str = Field(..., description="知识内容")
@@ -65,9 +62,6 @@ class SearchKnowledgeRequest(BaseModel):
 class BatchAnalysisRequest(BaseModel):
     symbols: List[str] = Field(..., description="ETF 代码列表")
 
-class LoRAFineTuneRequest(BaseModel):
-    symbol: str = Field("510300", description="ETF 代码")
-    period: str = Field("3y", description="数据周期")
     
 
 # ============================================================
@@ -183,7 +177,7 @@ async def health():
             "details": status
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 # ============================================================
 # 核心 API
 # ============================================================
@@ -199,7 +193,7 @@ async def chat(request: ChatRequest):
         )
         return result
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         
 @app.post("/api/chat/session", dependencies=[Depends(verify_token)])
 async def chat_with_session(request: ChatRequest):
@@ -213,7 +207,7 @@ async def chat_with_session(request: ChatRequest):
         )
         return result
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         
 @app.post("/api/recommend", dependencies=[Depends(verify_token)])
 async def get_recommendation(request: SymbolRequest):
@@ -229,7 +223,7 @@ async def get_recommendation(request: SymbolRequest):
     }
 
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 
 @app.post("/api/predict", dependencies=[Depends(verify_token)])
 async def get_prediction(request: SymbolRequest):
@@ -244,7 +238,7 @@ async def get_prediction(request: SymbolRequest):
         "data": result.get("data")
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 @app.post("/api/predict/ensemble", dependencies=[Depends(verify_token)])
 async def get_ensemble_prediction(request: SymbolRequest):
     """获取双模型集成预测"""
@@ -258,7 +252,7 @@ async def get_ensemble_prediction(request: SymbolRequest):
             "data": result.get("data")
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 
 @app.get("/api/quote/{symbol}", dependencies=[Depends(verify_token)])
 async def get_quote(symbol: str):
@@ -273,7 +267,7 @@ async def get_quote(symbol: str):
             "data": result.get("data")
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 
 
 @app.get("/api/etfs", dependencies=[Depends(verify_token)])
@@ -287,7 +281,7 @@ async def list_etfs():
             "count": len(etfs)
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
 @app.get("/api/top-recommendations", dependencies=[Depends(verify_token)])
@@ -304,7 +298,7 @@ async def get_top_recommendations():
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 
 @app.post("/api/analyze", dependencies=[Depends(verify_token)])
 async def analyze_complete(request: AnalyzeRequest):
@@ -331,7 +325,7 @@ async def analyze_complete(request: AnalyzeRequest):
         }
 
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         
 @app.post("/api/compare", dependencies=[Depends(verify_token)])
 async def compare_etfs(request: CompareRequest):
@@ -344,7 +338,7 @@ async def compare_etfs(request: CompareRequest):
             "symbols": request.symbols[:5]
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 
 @app.post("/api/batch-analysis", dependencies=[Depends(verify_token)])
 async def batch_analysis(request: BatchAnalysisRequest):
@@ -374,7 +368,7 @@ async def batch_analysis(request: BatchAnalysisRequest):
             "count": len(results)
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 
 # ============================================================
 # 记忆管理 API
@@ -393,7 +387,7 @@ async def get_memory(session_id: str):
             }
         return {"status": "error", "message": "记忆功能未启用"}
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
 # ============================================================
 # RAG / 知识库 API
 # ============================================================
@@ -413,7 +407,7 @@ async def rag_search(request: SearchKnowledgeRequest):
             "count": result.get("count", 0)
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
 @app.post("/api/rag/add", dependencies=[Depends(verify_token)])
@@ -431,7 +425,7 @@ async def rag_add(request: AddKnowledgeRequest):
             "message": "知识已添加"
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
 @app.delete("/api/rag/delete/{item_id}", dependencies=[Depends(verify_token)])
@@ -444,7 +438,7 @@ async def rag_delete(item_id: str):
         else:
             raise HTTPException(404, "知识不存在")
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
 @app.get("/api/rag/stats", dependencies=[Depends(verify_token)])
@@ -454,7 +448,7 @@ async def rag_stats():
         stats = milvus_client.get_stats()
         return {"status": "success", "stats": stats}
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
 @app.post("/api/rag/clear", dependencies=[Depends(verify_token)])
@@ -464,7 +458,7 @@ async def rag_clear():
         milvus_client.delete_all()
         return {"status": "success", "message": "知识库已清空"}
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
 # ============================================================
@@ -479,7 +473,7 @@ async def get_audit_log():
         return report
     except Exception as e:
         import traceback
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         
 @app.post("/api/privacy/cleanup", dependencies=[Depends(verify_token)])
 async def cleanup_data():
@@ -489,7 +483,7 @@ async def cleanup_data():
         return {"status": "success", "message": "数据清理完成"}
     except Exception as e:
         import traceback
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         
 @app.get("/api/privacy/status", dependencies=[Depends(verify_token)])
 async def get_privacy_status():
@@ -518,7 +512,7 @@ async def get_system_status():
             "details": status
         }
     except Exception as e:
-        traceback.print_exc()
+        print(f"zip_reports error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
 # ============================================================
