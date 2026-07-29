@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from .config import CACHE_DIR
-
+import traceback
 script_path = os.path.dirname(os.path.abspath(__file__))
 raw_data_path=f'{script_path}/../data/1D'
 parquet_path=f'{script_path}/../data/history'
@@ -38,8 +38,8 @@ class ETFDataFetcher:
                 return row.to_json(orient='records', date_format='iso')
                 
         except Exception as e:
-            print(e)
-            pass
+            traceback.print_exc()
+            
         return None
     
     def get_history(self, symbol: str, period: str = "1y") -> pd.DataFrame:
