@@ -26,10 +26,12 @@ class ETFDataFetcher:
         """获取实时行情"""
         try:
             code = symbol[-6:] if symbol.startswith(('SH', 'SZ')) else symbol
+            print('calling ak.stock_zh_a_spot_em to get stock quote')
             df = ak.stock_zh_a_spot_em()
             df['代码'] = df['代码'].astype(str)
             row = df[df['代码']== code]
             if  row.empty:    
+                print('calling ak.fund_etf_spot_em to get etf quote')
                 df = ak.fund_etf_spot_em()
                 df['代码'] = df['代码'].astype(str)
                 row = df[df['代码']== code]
