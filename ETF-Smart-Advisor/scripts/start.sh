@@ -70,8 +70,8 @@ for pkg in torch transformers fastapi uvicorn pymilvus sentence-transformers; do
     fi
 done
 if [ -n "$MISSING_PKGS" ]; then
-    echo "  ⚠️ Missing packages:$MISSING_PKGS"
-    echo "  Please run: pip install$MISSING_PKGS"
+    echo "  ⚠️ Installing missing packages:$MISSING_PKGS"
+    pip install $MISSING_PKGS
 else
     echo "  ✅ All dependencies installed"
 fi
@@ -102,18 +102,6 @@ else
     
 fi
 
-# ============================================================
-# 9. Check LoRA adapter
-# ============================================================
-echo ""
-echo "🔍 Checking LoRA adapter..."
-if [ -f "$LORA_PATH/adapter_model.safetensors" ]; then
-    echo "  ✅ LoRA adapter found at: $LORA_PATH"
-    export LORA_ADAPTER_PATH="$LORA_PATH"
-else
-    echo "  ℹ️ LoRA adapter not found, using base model"
-    export LORA_ADAPTER_PATH=""
-fi
 
 # 10. Check Milvus Lite (auto-start)
 echo ""
