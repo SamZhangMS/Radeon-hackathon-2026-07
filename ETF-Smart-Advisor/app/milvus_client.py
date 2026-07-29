@@ -11,8 +11,9 @@ from datetime import datetime
 from pathlib import Path
 import os
 import logging
-
+from milvus import default_server
 from sentence_transformers import SentenceTransformer
+from pymilvus import connections, Collection, CollectionSchema, FieldSchema, DataType, utility
 
 from .config import MILVUS_CONFIG, RAG_CONFIG, BASE_DIR
 
@@ -84,7 +85,11 @@ class MilvusClient:
         try:
             # 尝试导入 Milvus Lite
             try:
-                from milvus import default_server
+                try:
+                    default_server.stop()
+                except:
+                    pass
+                
                 default_server.start()
                 self._server = default_server
                 logger.info("✅ Milvus Lite 已启动")
@@ -100,7 +105,7 @@ class MilvusClient:
             
             # 连接 Milvus
             try:
-                from pymilvus import connections, Collection, CollectionSchema, FieldSchema, DataType, utility
+                
                 
                 connections.connect(
                     alias="default",
@@ -123,7 +128,6 @@ class MilvusClient:
     
     def _init_collection(self):
         """初始化 Milvus Collection"""
-        from pymilvus import connections, Collection, CollectionSchema, FieldSchema, DataType, utility
         
         if utility.has_collection(self.collection_name):
             self.collection = Collection(self.collection_name)
@@ -229,7 +233,6 @@ class MilvusClient:
             return
         
         try:
-            from pymilvus import Collection
             
             texts = [item['content'] for item in knowledge]
             embeddings = self.embedder.encode(texts, convert_to_numpy=True)
@@ -281,7 +284,7 @@ class MilvusClient:
             return self._search_memory(query, top_k)
         
         try:
-            from pymilvus import Collection
+            
             
             query_embedding = self.embedder.encode([query], convert_to_numpy=True)
             

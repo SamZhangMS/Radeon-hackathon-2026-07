@@ -240,6 +240,19 @@ PYTHONPATH=. python -m app.main
 cleanup() {
     echo ""
     echo "🛑 Shutting down..."
+
+        # 1. 先通过 Python 停止 Milvus Lite
+    echo "  Stopping Milvus Lite..."
+    python3 -c "
+try:
+    from milvus import default_server
+    default_server.stop()
+    print('  ✅ Milvus Lite stopped')
+except Exception as e:
+    print(f'  ⚠️ Milvus stop error: {e}')
+" 2>/dev/null || true
+
+    # 2. 停止 vLLM
     if [ -n "$VLLM_PID" ] && kill -0 $VLLM_PID 2>/dev/null; then
         echo "  Stopping vLLM (PID: $VLLM_PID)..."
         kill $VLLM_PID 2>/dev/null || true
