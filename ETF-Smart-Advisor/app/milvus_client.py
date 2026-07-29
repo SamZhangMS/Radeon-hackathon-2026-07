@@ -9,7 +9,6 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
-import os
 import logging
 
 # ========== 尝试导入 Milvus Lite ==========
@@ -17,17 +16,12 @@ try:
     from milvus_lite import MilvusLite
     MILVUS_AVAILABLE = True
 except ImportError:
-    try:
-        from milvus import default_server
-        MilvusLite = None
-        MILVUS_AVAILABLE = True
-    except ImportError:
-        MilvusLite = None
-        MILVUS_AVAILABLE = False
-        logging.getLogger(__name__).warning("⚠️ milvus-lite 未安装，将使用内存模式")
+    MilvusLite = None
+    MILVUS_AVAILABLE = False
+    logging.getLogger(__name__).warning("⚠️ milvus-lite 未安装，将使用内存模式")
 
 from sentence_transformers import SentenceTransformer
-from pymilvus import connections, Collection, CollectionSchema, FieldSchema, DataType, utility
+from pymilvus import MilvusClient as PyMilvusClient, DataType
 
 from .config import MILVUS_CONFIG, RAG_CONFIG, BASE_DIR
 
@@ -36,12 +30,12 @@ logger = logging.getLogger(__name__)
 
 class MilvusClient:
     """
-    Milvus 统一客户端
+    Milvus 统一客户端 - 使用 PyMilvus 新 API
     优先使用 Milvus Lite，失败时自动降级到内存模式
     """
     
     _instance = None
-    _db = None
+    _client = None
     _memory_mode = False
     
     def __new__(cls):
@@ -54,8 +48,6 @@ class MilvusClient:
             return
         
         self._initialized = True
-        self.host = MILVUS_CONFIG.get("host", "localhost")
-        self.port = MILVUS_CONFIG.get("port", "19530")
         self.collection_name = MILVUS_CONFIG.get("collection_name", "etf_knowledge")
         self.dim = MILVUS_CONFIG.get("dim", 384)
         self.top_k = MILVUS_CONFIG.get("top_k", 5)
@@ -102,100 +94,68 @@ class MilvusClient:
         logger.info(f"   📏 向量维度: {self.dim}")
     
     def _init_milvus_lite(self):
-        """初始化 Milvus Lite"""
+        """初始化 Milvus Lite - 使用新版 PyMilvus API"""
         try:
-            # 尝试使用 MilvusLite
-            try:
-                # 如果使用旧版 milvus 的 default_server
-                if MilvusLite is None:
-                    try:
-                        from milvus import default_server
-                        try:
-                            default_server.stop()
-                        except:
-                            pass
-                        default_server.start()
-                        self._db = default_server
-                        logger.info("✅ Milvus Lite (legacy) 已启动")
-                    except ImportError:
-                        raise ImportError("milvus-lite not available")
-                else:
-                    # 使用新版 milvus_lite
-                    self._db = MilvusLite(str(self.milvus_data_dir))
-                    logger.info(f"✅ Milvus Lite 已启动，数据目录: {self.milvus_data_dir}")
-            except ImportError:
-                logger.warning("⚠️ milvus-lite 未安装")
-                logger.info("   💡 安装: pip install milvus-lite")
-                self._memory_mode = True
-                return
-            except Exception as e:
-                logger.warning(f"⚠️ Milvus Lite 启动失败: {e}")
-                self._memory_mode = True
-                return
+            # 使用 PyMilvusClient 连接本地数据目录
+            self._client = PyMilvusClient(
+                uri=str(self.milvus_data_dir),
+                db_name="default"
+            )
+            logger.info(f"✅ Milvus Lite 已连接: {self.milvus_data_dir}")
             
-            # 连接 Milvus
-            try:
-                connections.connect(
-                    alias="default",
-                    host=self.host,
-                    port=self.port
-                )
-                logger.info(f"✅ 已连接到 Milvus: {self.host}:{self.port}")
-                
-                # 初始化 Collection
-                self._init_collection()
-                self._memory_mode = False
-                
-            except Exception as e:
-                logger.warning(f"⚠️ Milvus 连接失败: {e}")
-                self._memory_mode = True
-                
+            # 初始化 Collection
+            self._init_collection()
+            self._memory_mode = False
+            
+        except ImportError as e:
+            logger.warning(f"⚠️ milvus-lite 未安装: {e}")
+            logger.info("   💡 安装: pip install milvus-lite")
+            self._memory_mode = True
         except Exception as e:
             logger.warning(f"⚠️ Milvus 初始化失败: {e}")
             self._memory_mode = True
     
     def _init_collection(self):
         """初始化 Milvus Collection"""
-        
-        if utility.has_collection(self.collection_name):
-            self.collection = Collection(self.collection_name)
+        # 检查 Collection 是否存在
+        if self._client.has_collection(self.collection_name):
             logger.info(f"📂 使用已有 Collection: {self.collection_name}")
         else:
-            fields = [
-                FieldSchema(name="id", dtype=DataType.VARCHAR, max_length=64, is_primary=True),
-                FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=255),
-                FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=4096),
-                FieldSchema(name="category", dtype=DataType.VARCHAR, max_length=64),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=self.dim),
-                FieldSchema(name="created_at", dtype=DataType.VARCHAR, max_length=32),
-                FieldSchema(name="metadata", dtype=DataType.JSON),
-            ]
+            # 创建 Schema
+            schema = self._client.create_schema(
+                auto_id=False,
+                enable_dynamic_field=True
+            )
+            schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=64, is_primary=True)
+            schema.add_field(field_name="title", datatype=DataType.VARCHAR, max_length=255)
+            schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=4096)
+            schema.add_field(field_name="category", datatype=DataType.VARCHAR, max_length=64)
+            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.dim)
+            schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=32)
+            schema.add_field(field_name="metadata", datatype=DataType.JSON)
             
-            schema = CollectionSchema(fields, description="ETF 知识库")
-            self.collection = Collection(self.collection_name, schema)
-            logger.info(f"✅ 创建 Collection: {self.collection_name}")
-        
-        # 创建索引
-        indexes = self.collection.indexes
-        has_index = any(idx.field_name == "embedding" for idx in indexes)
-        
-        if not has_index and self.collection.num_entities > 0:
-            index_params = {
-                "metric_type": MILVUS_CONFIG.get("metric_type", "IP"),
-                "index_type": MILVUS_CONFIG.get("index_type", "IVF_FLAT"),
-                "params": {"nlist": MILVUS_CONFIG.get("nlist", 128)}
-            }
-            self.collection.create_index(
+            # 创建索引
+            index_params = self._client.prepare_index_params()
+            index_params.add_index(
                 field_name="embedding",
+                metric_type=MILVUS_CONFIG.get("metric_type", "IP"),
+                index_type=MILVUS_CONFIG.get("index_type", "IVF_FLAT"),
+                params={"nlist": MILVUS_CONFIG.get("nlist", 128)}
+            )
+            
+            # 创建 Collection
+            self._client.create_collection(
+                collection_name=self.collection_name,
+                schema=schema,
                 index_params=index_params
             )
-            logger.info("✅ 向量索引已创建")
-        
-        self.collection.load()
+            logger.info(f"✅ 创建 Collection: {self.collection_name}")
         
         # 如果 Collection 为空，插入数据
-        if self.collection.is_empty and self.knowledge:
-            self._insert_knowledge(self.knowledge)
+        if self.knowledge:
+            stats = self._client.get_collection_stats(self.collection_name)
+            if stats.get("row_count", 0) == 0:
+                self._insert_knowledge(self.knowledge)
     
     def _load_knowledge(self):
         """加载知识库"""
@@ -235,7 +195,6 @@ class MilvusClient:
              "category": "风险管理"},
         ]
         
-        # 加载自定义知识
         custom_knowledge = self._load_custom_knowledge()
         self.knowledge = default_knowledge + custom_knowledge
     
@@ -276,8 +235,7 @@ class MilvusClient:
                     "metadata": json.dumps(item.get('metadata', {}))
                 })
             
-            self.collection.insert(data)
-            self.collection.flush()
+            self._client.insert(self.collection_name, data)
             logger.info(f"✅ 插入 {len(data)} 条知识")
         except Exception as e:
             logger.warning(f"⚠️ 插入知识失败: {e}")
@@ -313,35 +271,34 @@ class MilvusClient:
         try:
             query_embedding = self.embedder.encode([query], convert_to_numpy=True)
             
-            search_params = {
-                "metric_type": MILVUS_CONFIG.get("metric_type", "IP"),
-                "params": {"nprobe": 16}
-            }
-            
-            expr = None
+            filter_expr = None
             if category:
-                expr = f'category == "{category}"'
+                filter_expr = f'category == "{category}"'
             
-            results = self.collection.search(
+            results = self._client.search(
+                collection_name=self.collection_name,
                 data=query_embedding.tolist(),
-                anns_field="embedding",
-                param=search_params,
                 limit=top_k,
-                expr=expr,
-                output_fields=["id", "title", "content", "category", "metadata"]
+                filter=filter_expr,
+                output_fields=["id", "title", "content", "category", "metadata"],
+                search_params={
+                    "metric_type": MILVUS_CONFIG.get("metric_type", "IP"),
+                    "params": {"nprobe": 16}
+                }
             )
             
             formatted_results = []
             for hits in results:
                 for hit in hits:
-                    if hit.score > 0.3:
+                    if hit['distance'] > 0.3:
+                        entity = hit['entity']
                         formatted_results.append({
-                            "id": hit.entity.get('id'),
-                            "title": hit.entity.get('title', ''),
-                            "content": hit.entity.get('content', ''),
-                            "category": hit.entity.get('category', 'general'),
-                            "score": hit.score,
-                            "metadata": json.loads(hit.entity.get('metadata', '{}')) if hit.entity.get('metadata') else {}
+                            "id": entity.get('id'),
+                            "title": entity.get('title', ''),
+                            "content": entity.get('content', ''),
+                            "category": entity.get('category', 'general'),
+                            "score": hit['distance'],
+                            "metadata": json.loads(entity.get('metadata', '{}')) if entity.get('metadata') else {}
                         })
             
             if len(formatted_results) < 2:
@@ -429,7 +386,7 @@ class MilvusClient:
         if not self._memory_mode and self.embedder is not None:
             try:
                 embedding = self.embedder.encode([content], convert_to_numpy=True)
-                self.collection.insert([{
+                self._client.insert(self.collection_name, [{
                     "id": item_id,
                     "title": title,
                     "content": content,
@@ -438,7 +395,6 @@ class MilvusClient:
                     "created_at": datetime.now().isoformat(),
                     "metadata": json.dumps(metadata or {}),
                 }])
-                self.collection.flush()
             except Exception as e:
                 logger.warning(f"⚠️ 插入失败: {e}")
                 self._memory_mode = True
@@ -469,8 +425,7 @@ class MilvusClient:
         """删除知识"""
         if not self._memory_mode:
             try:
-                self.collection.delete(f'id == "{item_id}"')
-                self.collection.flush()
+                self._client.delete(self.collection_name, f'id == "{item_id}"')
             except Exception as e:
                 logger.warning(f"⚠️ 删除失败: {e}")
         
@@ -485,8 +440,7 @@ class MilvusClient:
         """清空所有知识"""
         if not self._memory_mode:
             try:
-                self.collection.delete("id is not None")
-                self.collection.flush()
+                self._client.delete(self.collection_name, "id is not None")
             except Exception as e:
                 logger.warning(f"⚠️ 清空失败: {e}")
         
@@ -505,27 +459,21 @@ class MilvusClient:
             "data_dir": str(self.milvus_data_dir) if hasattr(self, 'milvus_data_dir') else None,
         }
         
-        if not self._memory_mode:
+        if not self._memory_mode and self._client:
             try:
-                stats["total_entities"] = self.collection.num_entities
-                stats["is_loaded"] = self.collection.is_loaded
-            except:
-                pass
+                collection_stats = self._client.get_collection_stats(self.collection_name)
+                stats["total_entities"] = collection_stats.get("row_count", 0)
+            except Exception as e:
+                logger.debug(f"获取统计信息失败: {e}")
         
         return stats
     
     def stop(self):
         """停止 Milvus Lite 服务"""
-        if self._db:
+        if self._client:
             try:
-                # 如果是 MilvusLite 实例，调用 close()
-                if hasattr(self._db, 'close'):
-                    self._db.close()
-                    logger.info("✅ Milvus Lite 已停止")
-                # 如果是 legacy default_server
-                elif hasattr(self._db, 'stop'):
-                    self._db.stop()
-                    logger.info("✅ Milvus Lite (legacy) 已停止")
+                self._client.close()
+                logger.info("✅ Milvus Lite 已停止")
             except Exception as e:
                 logger.warning(f"停止 Milvus 失败: {e}")
 
