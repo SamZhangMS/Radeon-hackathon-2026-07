@@ -125,24 +125,24 @@ from pathlib import Path
 sys.path.insert(0, str(Path('.').resolve()))
 
 try:
-    from app.config import QWEN_MODEL_ID, QWEN_MODEL_PATH
+    from app.config import LLM_MODEL_ID, LLM_MODEL_PATH
 except ImportError:
     print('❌ Cannot import config.py')
     sys.exit(1)
 
 from huggingface_hub import snapshot_download
 
-print(f'📥 Downloading: {QWEN_MODEL_ID}')
-print(f'📁 Target path: {QWEN_MODEL_PATH}')
+print(f'📥 Downloading: {LLM_MODEL_ID}')
+print(f'📁 Target path: {LLM_MODEL_PATH}')
 
 snapshot_download(
-    repo_id=QWEN_MODEL_ID,
-    local_dir=QWEN_MODEL_PATH,
+    repo_id=LLM_MODEL_ID,
+    local_dir=LLM_MODEL_PATH,
     local_dir_use_symlinks=False,
     resume_download=True,
     ignore_patterns=['*.h5', '*.ot', '*.msgpack']
 )
-print(f'✅ Model downloaded to: {QWEN_MODEL_PATH}')
+print(f'✅ Model downloaded to: {LLM_MODEL_PATH}')
 "
 
 # 13. Clean up temporary files

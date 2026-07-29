@@ -21,18 +21,18 @@ os.environ["OMP_NUM_THREADS"] = "1"
 # Qwen 模型配置 - 使用本地模型
 # ============================================================
 
-# QWEN_MODEL_PATH = "./models/Qwen/mapfinben-qwen35-9b"
-# QWEN_MODEL_ID = "Ljy2004/mapfinben-qwen35-9b-merged-unified-v3"
-# QWEN_MODEL_NAME = "mapfinben-qwen35-9b"
+# LLM_MODEL_PATH = "./models/Qwen/mapfinben-qwen35-9b"
+# LLM_MODEL_ID = "Ljy2004/mapfinben-qwen35-9b-merged-unified-v3"
+# LLM_MODEL_NAME = "mapfinben-qwen35-9b"
 
-QWEN_MODEL_NAME = "Qwen3.6-27B-GGUF"
-QWEN_MODEL_PATH = "./models/"+QWEN_MODEL_NAME
-QWEN_MODEL_ID = "cmp-nct/"+QWEN_MODEL_NAME
+LLM_MODEL_NAME = 'DeepSeek-R1-Distill-Qwen-1.5B' # "Qwen3.6-27B-GGUF"
+LLM_MODEL_PATH = "./models/"+LLM_MODEL_NAME
+LLM_MODEL_ID = "irelia11/"+LLM_MODEL_NAME
 
 # VLLM配置（用于API模式）
 VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
 VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://localhost:8000/v1")
-VLLM_MODEL = os.environ.get("VLLM_MODEL", QWEN_MODEL_PATH)
+VLLM_MODEL = os.environ.get("VLLM_MODEL", LLM_MODEL_PATH)
 API_KEY = os.environ.get("API_KEY", "abc-123")
 API_PORT = int(os.environ.get("API_PORT", 7860))
 TOOL_SERVER_CONFIG = {
@@ -166,8 +166,8 @@ GPU_LOCAL_PREDICTORS = {
 
 LLM_API_CONFIG = {
     # 模型基础配置
-    "model_path": QWEN_MODEL_PATH,
-    "model_name": QWEN_MODEL_NAME,
+    "model_path": LLM_MODEL_PATH,
+    "model_name": LLM_MODEL_NAME,
     "trust_remote_code": True,
     "dtype": "auto",
     "device_map": "auto",
@@ -179,7 +179,7 @@ LLM_API_CONFIG = {
         "enabled": True,
         "host": "localhost",
         "port": 8000,
-        "served_model_name": QWEN_MODEL_NAME,
+        "served_model_name": LLM_MODEL_NAME,
         "gpu_memory_utilization": 0.7,
         "max_num_seqs": 32,
         "dtype": "bfloat16",

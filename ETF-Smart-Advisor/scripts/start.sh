@@ -32,10 +32,10 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path('.').resolve()))
 try:
-    from app.config import QWEN_MODEL_PATH, QWEN_MODEL_NAME, QWEN_MODEL_ID, VLLM_CONFIG
-    print(f'MODEL_PATH={QWEN_MODEL_PATH}')
-    print(f'MODEL_NAME={QWEN_MODEL_NAME}')
-    print(f'MODEL_ID={QWEN_MODEL_ID}')
+    from app.config import LLM_MODEL_PATH, LLM_MODEL_NAME, LLM_MODEL_ID, VLLM_CONFIG
+    print(f'MODEL_PATH={LLM_MODEL_PATH}')
+    print(f'MODEL_NAME={LLM_MODEL_NAME}')
+    print(f'MODEL_ID={LLM_MODEL_ID}')
     print(f'VLLM_PORT={VLLM_CONFIG.get(\"port\", 8000)}')
     print(f'VLLM_GPU_MEM={VLLM_CONFIG.get(\"gpu_memory_utilization\", 0.85)}')
     print(f'VLLM_MAX_MODEL_LEN={VLLM_CONFIG.get(\"max_model_len\", 8192)}')
@@ -50,7 +50,7 @@ except ImportError as e:
 CONFIG_OUTPUT=$(read_config)
 if [ $? -ne 0 ]; then
     echo "❌ Failed to read config.py"
-    echo "   Please ensure app/config.py exists and contains QWEN_MODEL_PATH, QWEN_MODEL_NAME, QWEN_MODEL_ID, VLLM_CONFIG"
+    echo "   Please ensure app/config.py exists and contains LLM_MODEL_PATH, LLM_MODEL_NAME, LLM_MODEL_ID, VLLM_CONFIG"
     exit 1
 fi
 
@@ -59,7 +59,7 @@ eval "$CONFIG_OUTPUT"
 
 # 检查必要配置是否存在
 if [ -z "$MODEL_PATH" ] || [ -z "$MODEL_NAME" ] || [ -z "$MODEL_ID" ]; then
-    echo "❌ QWEN_MODEL_PATH, QWEN_MODEL_NAME or QWEN_MODEL_ID not set in config.py"
+    echo "❌ LLM_MODEL_PATH, LLM_MODEL_NAME or LLM_MODEL_ID not set in config.py"
     exit 1
 fi
 
@@ -130,7 +130,7 @@ echo "🔍 Checking Qwen model..."
 
 if [ ! -d "$MODEL_PATH" ]; then
     echo "  ❌ Model not found at: $MODEL_PATH"
-    echo "  💡 Please check QWEN_MODEL_PATH in app/config.py"
+    echo "  💡 Please check LLM_MODEL_PATH in app/config.py"
     echo "  💡 Or run setup_env.sh to download the model"
     exit 1
 fi
