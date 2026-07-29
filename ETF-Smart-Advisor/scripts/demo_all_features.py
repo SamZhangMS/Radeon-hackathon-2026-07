@@ -1707,7 +1707,7 @@ def main():
     print("🏦 ETF-Smart Advisor 完整功能演示")
     print("="*70)
     print("\n⚠️  请确保:")
-    print("   1. Qwen 模型已下载: ./models/Qwen/mapfinben-qwen35-9b")
+    print("   1. Qwen 模型已下载: ./models/Qwen/Qwen3.6-27B-GGUF")
     print("   2. ETF 数据在: ./data/1D/")
     print("   3. 已安装所有依赖包")
     if args.with_curl:

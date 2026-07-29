@@ -36,36 +36,21 @@ source etfadvisorvenv/bin/activate
 
 # 4. Upgrade pip
 echo ""
-# echo "⬆️ Upgrading pip..."
+echo "⬆️ Upgrading pip..."
 pip install --upgrade pip
 
-# pip install typing_extensions numpy
-# pip install pandas pyarrow --upgrade
-# pip install fastparquet
-# pip install cython
-# pip install akshare
-# pip install ta-lib
-# pip install baostock
-# pip install xgboost
-# pip install catboost
-# pip install optuna
-# pip install requests
-# pip install robust_json_parser
-# pip install pyqlib
-# pip install -r ../work/lib/Kronos/requirements.txt
-
-
+# 5. Install milvus-lite
 echo ""
 echo "Installing milvus-lite..."
 pip install pymilvus sentence-transformers milvus-lite
 export MILVUS_MODE=lite
 
-# 5. Install PyTorch dependencies
+# 6. Install PyTorch dependencies
 echo ""
 echo "Installing PyTorch dependencies..."
 pip install typing_extensions numpy
 
-# 6. Download and install ROCm PyTorch
+# 7. Download and install ROCm PyTorch
 echo ""
 echo "📥 Installing ROCm PyTorch (2.9.1+rocm7.2.1)..."
 cd /tmp
@@ -97,7 +82,7 @@ download_if_missing "$TRITON_WHEEL"
 echo "  Installing PyTorch components..."
 pip install "$PYTORCH_WHEEL" "$TORCHVISION_WHEEL" "$TORCHAUDIO_WHEEL" "$TRITON_WHEEL"
 
-# 7. Verify PyTorch
+# 8. Verify PyTorch
 echo ""
 echo "🔬 Verifying PyTorch installation..."
 python -c "
@@ -109,94 +94,56 @@ if torch.cuda.is_available():
     print(f'✅ Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB')
 "
 
-# 8. Install uv and vLLM
+# 9. Install uv and vLLM
 echo ""
 echo "📦 Installing uv and vLLM (ROCm version)..."
 pip install uv
 uv pip install vllm --upgrade \
     --extra-index-url https://wheels.vllm.ai/rocm/
 
-# 9. Install other project dependencies
+# 10. Install other project dependencies
 echo ""
 echo "📦 Installing other project dependencies..."
 cd "$PROJECT_DIR"
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
-# 10. Create data directories
+# 11. Create data directories
 echo ""
 echo "📁 Creating data directories..."
 mkdir -p data/models data/cache knowledge
 
-# 11. Check and download Qwen model
-# echo ""
-# echo "📥 Checking Qwen3-30B-A3B-GPTQ-Int4..."
-# MODEL_PATH="./models/Qwen/Qwen3-30B-A3B-GPTQ-Int4"
-# if [ ! -d "$MODEL_PATH" ]; then
-#     echo "  Model not found, downloading ..."
-#     mkdir -p models/Qwen
-#     pip install modelscope -q
-#     modelscope download --model Qwen/Qwen3-30B-A3B-GPTQ-Int4 --local_dir "$MODEL_PATH"
-# else
-#     echo "  ✅ Model already exists"
-# fi
-
+# 12. Download Qwen model
+echo ""
+echo "📥 Downloading Qwen model..."
 pip install huggingface_hub
-MODEL_PATH="./models/Qwen/mapfinben-qwen35-9b"
-# 下载完整模型到本地
+
 python -c "
-from huggingface_hub import snapshot_download
 import os
+import sys
+from pathlib import Path
 
-model_id = 'Ljy2004/mapfinben-qwen35-9b-merged-unified-v3'
-# local_dir = './models/Qwen/mapfinben-qwen35-9b'
-local_dir = os.environ.get('MODEL_PATH', './models/Qwen/mapfinben-qwen35-9b')
+sys.path.insert(0, str(Path('.').resolve()))
 
-print(f'📥 Downloading: {model_id}')
+try:
+    from app.config import QWEN_MODEL_ID, QWEN_MODEL_PATH
+except ImportError:
+    print('❌ Cannot import config.py')
+    sys.exit(1)
+
+from huggingface_hub import snapshot_download
+
+print(f'📥 Downloading: {QWEN_MODEL_ID}')
+print(f'📁 Target path: {QWEN_MODEL_PATH}')
 
 snapshot_download(
-    repo_id=model_id,
-    local_dir=local_dir,
+    repo_id=QWEN_MODEL_ID,
+    local_dir=QWEN_MODEL_PATH,
     local_dir_use_symlinks=False,
     resume_download=True,
-    ignore_patterns=['*.h5', '*.ot', '*.msgpack'] )
+    ignore_patterns=['*.h5', '*.ot', '*.msgpack']
+)
+print(f'✅ Model downloaded to: {QWEN_MODEL_PATH}')
 "
-# # ============================================================
-# # 12. LoRA 调优（使用 ETF 历史数据）
-# # ============================================================
-# echo ""
-# echo "🔧 Running LoRA fine-tuning on Qwen with ETF data..."
-
-# # 检查数据目录是否存在
-# if [ -d "./data/1D" ] && [ "$(ls -A ./data/1D 2>/dev/null)" ]; then
-#     echo "  ✅ ETF data found, starting fine-tuning..."
-#     rm -rf loraenv
-#     python3 -m venv loraenv
-#     source loraenv/bin/activate
-#     pip install --upgrade pip
-#     # 设置环境变量
-#     export FINETUNE_MODEL_PATH="$MODEL_PATH"
-#     export FINETUNE_OUTPUT_DIR="./data/models/lora_etf_advisor"
-#     export FINETUNE_DATA_DIR="./data/1D"
-#     # 安装额外依赖
-#     pip install transformers huggingface-hub tokenizers optimum accelerate peft trl datasets bitsandbytes scikit-learn pandas numpy
-
-#     # 运行调优脚本
-#     # PYTHONPATH=. python scripts/finetune_qwen.py
-#     PYTHONPATH=. python -m app.lora_finetuner --data_dir ./data/1D --use_4bit
-    
-#     # 检查调优是否成功
-#     if [ -f "./data/models/lora_etf_advisor/adapter_model.safetensors" ]; then
-#         echo "  ✅ LoRA fine-tuning completed successfully!"
-#         echo "  📁 LoRA weights saved to: ./data/models/lora_etf_advisor"
-#     else
-#         echo "  ⚠️ LoRA fine-tuning may have failed, check logs above"
-#     fi
-# else
-#     echo "  ⚠️ ETF data not found at ./data/1D, skipping fine-tuning"
-#     echo "  💡 Please add ETF historical data files (*.txt) to ./data/1D/"
-#     echo "  💡 Example format: date,open,high,low,close,volume,money"
-# fi
-
 
 # 13. Clean up temporary files
 cleanup_temp_files() {
@@ -244,10 +191,4 @@ echo "=============================================="
 echo ""
 
 source etfadvisorvenv/bin/activate
-# Call start.sh to launch the service
-
-
-
-
-# 4. 启动应用
 bash scripts/start.sh

@@ -21,9 +21,13 @@ os.environ["OMP_NUM_THREADS"] = "1"
 # Qwen 模型配置 - 使用本地模型
 # ============================================================
 
-QWEN_MODEL_PATH = "./models/Qwen/mapfinben-qwen35-9b"
-QWEN_MODEL_NAME = "mapfinben-qwen35-9b"
+# QWEN_MODEL_PATH = "./models/Qwen/mapfinben-qwen35-9b"
+# QWEN_MODEL_ID = "Ljy2004/mapfinben-qwen35-9b-merged-unified-v3"
+# QWEN_MODEL_NAME = "mapfinben-qwen35-9b"
 
+QWEN_MODEL_NAME = "Qwen3.6-27B-GGUF"
+QWEN_MODEL_PATH = "./models/"+QWEN_MODEL_NAME
+QWEN_MODEL_ID = "cmp-nct/"+QWEN_MODEL_NAME
 
 # VLLM配置（用于API模式）
 VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
@@ -176,11 +180,11 @@ LLM_API_CONFIG = {
         "host": "localhost",
         "port": 8000,
         "served_model_name": QWEN_MODEL_NAME,
-        "gpu_memory_utilization": 0.85,
+        "gpu_memory_utilization": 0.7,
         "max_num_seqs": 32,
         "dtype": "bfloat16",
         "quantization": None,
-        "max_model_len": 8192,
+        "max_model_len": 4096,
     },
     
     # 外部 API 配置
