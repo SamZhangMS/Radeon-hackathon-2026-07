@@ -9,7 +9,11 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
+
+from .llm_client import get_llm_client
 from .predictor import ETFPricePredictor
 from .data_fetcher import ETFDataFetcher
 from .utils import get_last_date, format_exception
@@ -394,51 +398,407 @@ MA60: {indicators['ma60']:.4f}
     # Top 推荐
     # ============================================================
     
-    def get_top_recommendations(self, symbols: List[str] = None) -> Dict[str, List]:
-        """获取 Top 3 推荐"""
+    # def get_top_recommendations(self, symbols: List[str] = None) -> Dict[str, List]:
+    #     """获取 Top 3 推荐"""
+    #     if symbols is None:
+    #         symbols = self.fetcher.get_etf_list()
+        
+    #     results = {'buy': [], 'hold': [], 'sell': [], 'all_recommendations': []}
+        
+    #     for symbol in symbols:
+    #         df = self.fetcher.get_history(symbol, "6mo")
+    #         if df.empty:
+    #             continue
+            
+    #         advice = self.get_recommendation(symbol, df)
+    #         result = {
+    #             'symbol': symbol,
+    #             'name': advice.get('name', symbol),
+    #             'recommendation': advice['recommendation'],
+    #             'signal': advice['signal'],
+    #             'score': advice['score'],
+    #             'confidence': advice['confidence'],
+    #             'current_price': advice['current_price'],
+    #             'target_price': advice.get('target_price', 0),
+    #             'risk_level': advice['risk_level'],
+    #             'reasons': advice['reasons'],
+    #             'latest_date': self._get_latest_date(df)
+    #         }
+    #         results['all_recommendations'].append(result)
+            
+    #         if advice['recommendation'] == 'buy':
+    #             results['buy'].append(result)
+    #         elif advice['recommendation'] == 'hold':
+    #             results['hold'].append(result)
+    #         else:
+    #             results['sell'].append(result)
+        
+    #     for key in ['buy', 'hold', 'sell']:
+    #         results[key] = sorted(
+    #             results[key],
+    #             key=lambda x: x['score'],
+    #             reverse=(key == 'buy')
+    #         )[:3]
+        
+    #     results['latest_date'] = datetime.now().strftime('%Y-%m-%d')
+    #     return results
+    
+    def get_top_recommendations(
+        self, 
+        symbols: List[str] = None, 
+        top_k: int = 3,
+        use_cache: bool = True,
+        data_days: int = 60
+    ) -> Dict[str, List]:
+        """
+        使用大模型从所有ETF中选出Top K
+        只给原始OHLCVA数据，技术指标由大模型自己计算
+        """
+        start_time = time.time()
+        
         if symbols is None:
             symbols = self.fetcher.get_etf_list()
         
-        results = {'buy': [], 'hold': [], 'sell': [], 'all_recommendations': []}
+        if not symbols:
+            return self._empty_result("没有可用的ETF")
         
-        for symbol in symbols:
-            df = self.fetcher.get_history(symbol, "6mo")
-            if df.empty:
-                continue
-            
-            advice = self.get_recommendation(symbol, df)
-            result = {
-                'symbol': symbol,
-                'name': advice.get('name', symbol),
-                'recommendation': advice['recommendation'],
-                'signal': advice['signal'],
-                'score': advice['score'],
-                'confidence': advice['confidence'],
-                'current_price': advice['current_price'],
-                'target_price': advice.get('target_price', 0),
-                'risk_level': advice['risk_level'],
-                'reasons': advice['reasons'],
-                'latest_date': self._get_latest_date(df)
+        print(f"📊 开始用大模型分析 {len(symbols)} 个ETF (原始OHLCVA数据，大模型自算指标)...")
+        
+        # 获取所有ETF的原始数据（并行）
+        print(f"   📊 获取 {len(symbols)} 个ETF的原始OHLCVA数据 ({data_days}天)...")
+        all_data = self._get_all_raw_data(symbols, data_days)
+        
+        if not all_data:
+            return self._empty_result("无法获取ETF数据")
+        
+        print(f"   ✅ 成功获取 {len(all_data)} 个ETF的原始数据")
+        
+        # 压缩成紧凑格式（只包含原始OHLCVA）
+        print(f"   📦 压缩原始数据...")
+        compressed_data = self._compress_raw_data(all_data, data_days)
+        print(f"   📏 数据大小: {len(compressed_data):,} 字符")
+        
+        # 交给大模型分析（让大模型自己计算指标）
+        print(f"   🤖 大模型分析所有ETF（自行计算技术指标）...")
+        result = self._llm_analyze_all(compressed_data, top_k)
+        
+        if not result:
+            return self._empty_result("大模型分析失败")
+        
+        print(f"   ✅ 大模型推荐了 {len(result)} 个ETF")
+        
+        # 获取详细信息
+        print(f"   📋 获取详细信息...")
+        detailed_results = self._get_detailed_results(result, all_data)
+        
+        # 格式化结果
+        grouped = self._format_final_results(detailed_results, top_k, start_time)
+        
+        
+        
+        print(f"   ✅ 完成，耗时 {grouped['elapsed_time']}")
+        
+        return grouped
+    
+    # ============================================================
+    # 获取原始数据（不计算指标）
+    # ============================================================
+    
+    def _get_all_raw_data(self, symbols: List[str], days: int) -> List[Dict]:
+        """并行获取所有ETF的原始OHLCVA数据"""
+        results = []
+        total = len(symbols)
+        completed = 0
+        
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(self._get_single_raw_data, symbol, days): symbol 
+                for symbol in symbols
             }
-            results['all_recommendations'].append(result)
             
-            if advice['recommendation'] == 'buy':
-                results['buy'].append(result)
-            elif advice['recommendation'] == 'hold':
-                results['hold'].append(result)
-            else:
-                results['sell'].append(result)
+            for future in as_completed(futures):
+                try:
+                    result = future.result(timeout=10)
+                    if result:
+                        results.append(result)
+                    completed += 1
+                    if completed % 100 == 0:
+                        print(f"     进度: {completed}/{total}")
+                except Exception:
+                    completed += 1
+                    continue
         
-        for key in ['buy', 'hold', 'sell']:
-            results[key] = sorted(
-                results[key],
-                key=lambda x: x['score'],
-                reverse=(key == 'buy')
-            )[:3]
-        
-        results['latest_date'] = datetime.now().strftime('%Y-%m-%d')
         return results
     
+    def _get_single_raw_data(self, symbol: str, days: int) -> Optional[Dict]:
+        """获取单个ETF的原始OHLCVA数据（不计算任何指标）"""
+        try:
+            df = self.fetcher.get_history(symbol, f"{days}d")
+            if df.empty or len(df) < 10:
+                return None
+            
+            # 取最近 days 天
+            df = df.tail(days)
+            
+            return {
+                'symbol': symbol,
+                'data': df,
+                'latest_close': float(df['close'].iloc[-1]),
+            }
+            
+        except Exception:
+            return None
+    
+    # ============================================================
+    # 压缩原始数据
+    # ============================================================
+    # app/advisor.py
+
+    def convert_etf_data(self, symbol: str, df: pd.DataFrame, days: int = 90) -> str:
+        """将ETF数据转换为CSV字符串格式"""
+        csv_string = ""
+        try:
+            if df is None or df.empty:
+                return csv_string
+            
+            # 数据预处理
+            df = df.copy()
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df = df.set_index('date')
+            elif df.index.name is None or df.index.name != 'date':
+                # 如果索引不是日期，尝试重置
+                pass
+            
+            df = df.ffill().bfill()
+            df = df.tail(days)
+            
+            # 转换为CSV字符串(省Token)
+            # 确保列存在
+            cols = ['open', 'high', 'low', 'close', 'volume', 'amount']
+            available_cols = [c for c in cols if c in df.columns]
+            if available_cols:
+                csv_string = df[available_cols].round(4).to_csv(
+                    header=False, 
+                    float_format='%.4f',
+                    date_format='%Y-%m-%d'
+                )
+            
+        except Exception as e:
+            print(f"❌ 获取 {symbol} 数据失败: {e}")
+        
+        return csv_string
+
+
+    def _compress_raw_data(self, all_data: List[Dict], days: int) -> str:
+        """
+        使用CSV格式压缩原始OHLCVA数据，不包含任何技术指标
+        
+        格式: 
+        ETF代码|symbol
+        日期,open,high,low,close,volume,amount
+        2024-01-15,3.4000,3.4500,3.3800,3.4200,1234567,12345678
+        2024-01-16,3.4200,3.4800,3.4000,3.4450,1345678,13456789
+        ...
+        """
+        lines = []
+        
+        for item in all_data:
+            df = item['data']
+            symbol = item['symbol']
+            
+            # 使用 convert_etf_data 生成 CSV 字符串
+            csv_string = self.convert_etf_data(symbol, df, days)
+            
+            if csv_string:
+                # 格式: 代码|symbol\nCSV数据
+                lines.append(f"代码|{symbol}\n{csv_string}")
+        
+        return "\n".join(lines)
+    
+    # ============================================================
+    # 大模型全量分析（自己计算指标）
+    # ============================================================
+    
+    def _llm_analyze_all(self, compressed_data: str, top_k: int) -> List[Dict]:
+        """
+        一次性把所有原始数据交给大模型，让大模型自己计算指标
+        """
+        total_etfs = compressed_data.count('\n') + 1
+        
+        prompt = f"""# 任务
+你是专业的ETF技术分析师。请分析以下 {total_etfs} 个ETF的原始OHLCVA数据，选出最具投资价值的 Top {top_k} 个。
+
+# 数据格式说明
+每个ETF的数据以 "代码|{symbol}" 开头，后面是CSV格式的完整历史数据。
+数据包含以下字段：日期,开盘价,最高价,最低价,收盘价,成交量,成交额
+
+示例：
+代码|510050
+date,open,high,low,close,volume,amount
+2024-01-15,3.4000,3.4500,3.3800,3.4200,1234567,12345678
+2024-01-16,3.4200,3.4800,3.4000,3.4450,1345678,13456789
+...
+
+# 你需要自己计算的技术分析指标
+请根据原始数据自行计算以下指标：
+1. **均线系统**：MA5、MA10、MA20、MA60
+2. **趋势判断**：上升/下降/震荡趋势，均线排列状态
+3. **RSI**：相对强弱指标（14日）
+4. **MACD**：快线、慢线、柱状线
+5. **布林带**：上轨、中轨、下轨，价格位置
+6. **量价关系**：成交量与价格的配合情况
+7. **K线形态**：识别关键形态（突破、反转、持续等）
+8. **支撑压力位**：根据历史高低点判断
+9. **成交额分析**：资金流入流出情况
+
+# 数据
+{compressed_data}
+
+# 输出要求
+严格按照以下JSON格式输出，包含你计算的指标结果：
+
+{{
+    "recommendations": [
+        {{
+            "symbol": "ETF代码",
+            "rank": 1,
+            "calculated_indicators": {{
+                "ma5": 数字,
+                "ma20": 数字,
+                "ma60": 数字,
+                "rsi": 数字,
+                "macd_hist": 数字,
+                "trend": "up/down/sideways",
+                "bb_position": "上轨附近/中轨附近/下轨附近",
+                "volume_trend": "放量/缩量/平稳"
+            }},
+            "reason": "选择理由（50字以内，结合你计算的指标说明）",
+            "trend_analysis": "趋势判断",
+            "signals": ["信号1", "信号2", "信号3"],
+            "risk_level": "low/medium/high",
+            "suggested_action": "买入/持有/观望"
+        }}
+    ]
+}}
+
+只输出JSON，不要其他内容。"""
+
+        try:
+            response = self.llm.generate_response(
+                messages=[{"role": "user", "content": prompt}],
+                max_new_tokens=1500,
+                temperature=0.3,
+                enable_thinking=False
+            )
+            
+            # 提取JSON
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                data = json.loads(json_match.group())
+                return data.get('recommendations', [])
+            
+        except Exception as e:
+            print(f"   ⚠️ 大模型分析失败: {e}")
+        
+        return []
+    
+    # ============================================================
+    # 获取详细信息
+    # ============================================================
+    
+    def _get_detailed_results(self, recommendations: List[Dict], all_data: List[Dict]) -> List[Dict]:
+        """获取推荐ETF的详细信息"""
+        if not recommendations:
+            return []
+        
+        data_map = {item['symbol']: item for item in all_data}
+        results = []
+        
+        for rec in recommendations[:10]:
+            symbol = rec.get('symbol')
+            if not symbol:
+                continue
+            
+            raw_data = data_map.get(symbol)
+            if not raw_data:
+                continue
+            
+            df = raw_data.get('data')
+            if df is None or df.empty:
+                continue
+            
+            try:
+                advice = self.get_recommendation(symbol, df)
+                if advice:
+                    results.append({
+                        'symbol': symbol,
+                        'name': advice.get('name', symbol),
+                        'recommendation': advice.get('recommendation', 'neutral'),
+                        'signal': rec.get('suggested_action', advice.get('signal', '观望')),
+                        'score': advice.get('score', 0),
+                        'confidence': advice.get('confidence', 0.5),
+                        'current_price': advice.get('current_price', 0),
+                        'target_price': advice.get('target_price', 0),
+                        'stop_loss': advice.get('stop_loss', 0),
+                        'risk_level': rec.get('risk_level', 'medium'),
+                        'reasons': advice.get('reasons', []),
+                        'llm_reason': rec.get('reason', ''),
+                        'trend_analysis': rec.get('trend_analysis', ''),
+                        'signals': rec.get('signals', []),
+                        'llm_indicators': rec.get('calculated_indicators', {}),
+                        'latest_date': self._get_latest_date(df),
+                        'generatedby': 'LLM'
+                    })
+            except Exception:
+                continue
+        
+        return results
+    
+    # ============================================================
+    # 结果格式化
+    # ============================================================
+    
+    def _format_final_results(self, results: List[Dict], top_k: int, start_time: float) -> Dict:
+        """格式化最终结果"""
+        grouped = {
+            'buy': [],
+            'hold': [],
+            'sell': [],
+            'neutral': []
+        }
+        
+        for r in results:
+            rec = r.get('recommendation', 'neutral')
+            if rec in grouped:
+                grouped[rec].append(r)
+            else:
+                grouped['neutral'].append(r)
+        
+        for key in grouped:
+            grouped[key] = grouped[key][:top_k]
+        
+        grouped['all_recommendations'] = results[:top_k * 2]
+        grouped['total_analyzed'] = len(results)
+        grouped['elapsed_time'] = f"{time.time() - start_time:.2f}s"
+        grouped['latest_date'] = datetime.now().strftime('%Y-%m-%d')
+        grouped['method'] = 'LLM-driven (self-calculated indicators)'
+        
+        return grouped
+    
+    def _empty_result(self, message: str) -> Dict:
+        return {
+            'buy': [],
+            'hold': [],
+            'sell': [],
+            'neutral': [],
+            'all_recommendations': [],
+            'total_analyzed': 0,
+            'elapsed_time': '0s',
+            'latest_date': datetime.now().strftime('%Y-%d'),
+            'error': message
+        }
+        
     # ============================================================
     # LLM 预测（新增）
     # ============================================================

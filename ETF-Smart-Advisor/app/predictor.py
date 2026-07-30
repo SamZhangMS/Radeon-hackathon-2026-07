@@ -261,8 +261,6 @@ class ETFPricePredictor:
         if self.lstm_model_path.exists():
             self.load_lstm_model()
 
-        if self.lora_path.exists():
-            self.load_lora_adapter(str(self.lora_path))
     
         self._init_gpu_predictors()
     
@@ -476,49 +474,49 @@ class ETFPricePredictor:
 #         except Exception as e:
 #             return {'error': str(e), 'success': False}
     
-    def get_all_predictions(self, df: pd.DataFrame) -> Dict:
-        """获取所有预测结果（GPU本地 + Transformer-LSTM）"""
-        results = {
-            'gpu_local': {},
-            'transformer_lstm': {},
-            'all_predictions': []
-        }
+    # def get_all_predictions(self, df: pd.DataFrame) -> Dict:
+    #     """获取所有预测结果（GPU本地 + Transformer-LSTM）"""
+    #     results = {
+    #         'gpu_local': {},
+    #         'transformer_lstm': {},
+    #         'all_predictions': []
+    #     }
         
-        # 1. GPU本地预测
-        gpu_results = self.predict_gpu_local(df)
-        for name, pred in gpu_results.items():
-            if pred.get('success', False):
-                results['gpu_local'][name] = pred
-                results['all_predictions'].append(pred)
+    #     # 1. GPU本地预测
+    #     gpu_results = self.predict_gpu_local(df)
+    #     for name, pred in gpu_results.items():
+    #         if pred.get('success', False):
+    #             results['gpu_local'][name] = pred
+    #             results['all_predictions'].append(pred)
         
-        # 2. Transformer-LSTM预测
-        try:
-            trans_pred = self.predict(df, use_ensemble=True)
-            if trans_pred.get('success', False):
-                results['transformer_lstm'] = trans_pred
-                results['all_predictions'].append(trans_pred)
-        except Exception:
-            pass
+    #     # 2. Transformer-LSTM预测
+    #     try:
+    #         trans_pred = self.predict(df, use_ensemble=True)
+    #         if trans_pred.get('success', False):
+    #             results['transformer_lstm'] = trans_pred
+    #             results['all_predictions'].append(trans_pred)
+    #     except Exception:
+    #         pass
         
-        # 3. ✅ Qwen 预测
-        try:
-            qwen_pred = self.call_llm(df, llm_type='qwen_local', use_full_data=True)
-            if qwen_pred.get('success', False):
-                results['qwen'] = qwen_pred
-                results['all_predictions'].append(qwen_pred)
-        except Exception as e:
-            print(f"⚠️ Qwen 预测失败: {e}")
+    #     # 3. ✅ Qwen 预测
+    #     try:
+    #         qwen_pred = self.call_llm(df, llm_type='qwen_local', use_full_data=True)
+    #         if qwen_pred.get('success', False):
+    #             results['qwen'] = qwen_pred
+    #             results['all_predictions'].append(qwen_pred)
+    #     except Exception as e:
+    #         print(f"⚠️ Qwen 预测失败: {e}")
             
-        # 4. 可选：远程 DeepSeek
-        try:
-            deepseek_pred = self.call_llm(df, llm_type='deepseek', use_full_data=False)
-            if deepseek_pred.get('success', False):
-                results['llm']['deepseek'] = deepseek_pred
-                results['all_predictions'].append(deepseek_pred)
-        except Exception as e:
-            print(f"⚠️ DeepSeek 预测失败: {e}")
+    #     # 4. 可选：远程 DeepSeek
+    #     try:
+    #         deepseek_pred = self.call_llm(df, llm_type='deepseek', use_full_data=False)
+    #         if deepseek_pred.get('success', False):
+    #             results['llm']['deepseek'] = deepseek_pred
+    #             results['all_predictions'].append(deepseek_pred)
+    #     except Exception as e:
+    #         print(f"⚠️ DeepSeek 预测失败: {e}")
             
-        return results
+    #     return results
     
     def load_lstm_model(self):
         """加载 LSTM 模型"""
@@ -714,22 +712,6 @@ class ETFPricePredictor:
         
         # 格式化响应
         return self._format_prediction_response(pred_denorm, future_dates, df)
-
-    def load_lora_adapter(self, lora_path: str):
-        """加载微调后的 LoRA 适配器"""
-        try:
-            from peft import PeftModel
-            
-            if self.model is not None:
-                if not hasattr(self.model, 'base_model'):
-                    self.model = PeftModel.from_pretrained(self.model, lora_path)
-                    print(f"LoRA 适配器已加载: {lora_path}")
-                else:
-                    print(f"ℹ 模型已加载 LoRA，跳过重复加载")
-        except ImportError as e:
-            print(f"⚠️ peft 未安装，跳过 LoRA 加载: {e}")
-        except Exception as e:
-            print(f"⚠️ LoRA 加载失败: {e}")
 
             
     def save_model(self):

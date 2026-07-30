@@ -159,14 +159,6 @@ class ETFAdvisorAgent:
         # 价格预测
         self.predictor = ETFPricePredictor()
         
-        # LoRA 适配器
-        lora_path = MODELS_DIR / "lora_etf_advisor"
-        if lora_path.exists():
-            try:
-                self.predictor.load_lora_adapter(str(lora_path))
-                self.logger.info(f"✅ LoRA 适配器已加载: {lora_path}")
-            except Exception as e:
-                self.logger.warning(f"⚠️ LoRA 加载失败: {e}")
         
         # Milvus（知识库）
         try:
