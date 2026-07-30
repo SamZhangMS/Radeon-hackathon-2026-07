@@ -448,7 +448,7 @@ MA60: {indicators['ma60']:.4f}
         symbols: List[str] = None, 
         top_k: int = 3,
         use_cache: bool = True,
-        data_days: int = 60
+        data_days: int = 90
     ) -> Dict[str, List]:
         """
         使用大模型从所有ETF中选出Top K
@@ -630,7 +630,7 @@ MA60: {indicators['ma60']:.4f}
 你是专业的ETF技术分析师。请分析以下 {total_etfs} 个ETF的原始OHLCVA数据，选出最具投资价值的 Top {top_k} 个。
 
 # 数据格式说明
-每个ETF的数据以 "代码|{symbol}" 开头，后面是CSV格式的完整历史数据。
+每个ETF的数据以 "代码|510050" 开头，后面是CSV格式的完整历史数据。
 数据包含以下字段：日期,开盘价,最高价,最低价,收盘价,成交量,成交额
 
 示例：
