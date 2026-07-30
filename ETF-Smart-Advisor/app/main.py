@@ -184,8 +184,9 @@ async def health():
 
 @app.post("/api/chat", dependencies=[Depends(verify_token)])
 async def chat(request: ChatRequest):
-    """聊天接口 - 支持多轮对话"""
+    """聊天接口"""
     try:
+        # ✅ 无需修改，agent.chat 内部通过 advisor 调用
         result = await agent.chat(
             message=request.message,
             symbol=request.symbol,
@@ -194,6 +195,7 @@ async def chat(request: ChatRequest):
         return result
     except Exception as e:
         print(f"chat error. Exception:{e}\nTrackback:{format_exception(e)}")
+        raise HTTPException(500, str(e))
         
 @app.post("/api/chat/session", dependencies=[Depends(verify_token)])
 async def chat_with_session(request: ChatRequest):
@@ -229,35 +231,54 @@ async def get_recommendation(request: SymbolRequest):
 async def get_prediction(request: SymbolRequest):
     """获取价格预测"""
     try:
-        result = agent.get_prediction_sync(request.symbol, request.period)
-        if not result.get("success"):
-            raise HTTPException(400, result.get("error", "预测失败"))
-
-        return {
-        "status": "success",
-        "data": result.get("data")
-        }
-    except Exception as e:
-        print(f"get_prediction error. Exception:{e}\nTrackback:{format_exception(e)}")
-@app.post("/api/predict/ensemble", dependencies=[Depends(verify_token)])
-async def get_ensemble_prediction(request: SymbolRequest):
-    """获取双模型集成预测"""
-    try:
-        result = agent.get_prediction_sync(request.symbol, request.period)
+        df = agent.fetcher.get_history(request.symbol, request.period)
+        if df.empty:
+            raise HTTPException(404, f"未找到 {request.symbol} 的数据")
+        
+        # ✅ 使用 advisor.predict_with_llm
+        result = agent.advisor.predict_with_llm(request.symbol, df)
+        
         if not result.get("success"):
             raise HTTPException(400, result.get("error", "预测失败"))
         
         return {
             "status": "success",
-            "data": result.get("data")
+            "data": result
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"get_prediction error. Exception:{e}\nTrackback:{format_exception(e)}")
+        raise HTTPException(500, str(e))
+@app.post("/api/predict/ensemble", dependencies=[Depends(verify_token)])
+async def get_ensemble_prediction(request: SymbolRequest):
+    """获取集成预测（深度学习模型）"""
+    try:
+        df = agent.fetcher.get_history(request.symbol, request.period)
+        if df.empty:
+            raise HTTPException(404, f"未找到 {request.symbol} 的数据")
+        
+        # ✅ 使用 predictor.predict (纯深度学习)
+        result = agent.predictor.predict(df, use_ensemble=True)
+        
+        if not result.get("success"):
+            raise HTTPException(400, result.get("error", "预测失败"))
+        
+        return {
+            "status": "success",
+            "data": result
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"get_ensemble_prediction error. Exception:{e}\nTrackback:{format_exception(e)}")
+        raise HTTPException(500, str(e))
 
 @app.get("/api/quote/{symbol}", dependencies=[Depends(verify_token)])
 async def get_quote(symbol: str):
     """获取实时行情"""
     try:
+        # ✅ 使用 agent.get_quote_sync（内部调用 fetcher）
         result = agent.get_quote_sync(symbol)
         if not result.get("success"):
             raise HTTPException(404, result.get("error", f"未找到 {symbol}"))
@@ -266,8 +287,11 @@ async def get_quote(symbol: str):
             "status": "success",
             "data": result.get("data")
         }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"get_quote error. Exception:{e}\nTrackback:{format_exception(e)}")
+        raise HTTPException(500, str(e))
 
 
 @app.get("/api/etfs", dependencies=[Depends(verify_token)])

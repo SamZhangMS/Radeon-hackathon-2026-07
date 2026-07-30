@@ -9,7 +9,10 @@ from typing import Dict, List, Tuple, Optional, Union,Any
 from datetime import datetime, timedelta
 from .config import DEVICE, PREDICT_CONFIG, MODELS_DIR, LLM_CONFIG 
 from .utils import  get_last_date,generate_future_daily_dates
-
+from .config import (
+    AGENT_SYSTEM_PROMPT, AGENT_SYSTEM_PROMPT_EXTENDED,
+    MEMORY_CONFIG, MODELS_DIR, MILVUS_CONFIG
+)
 
 class TimeSeriesTransformer(nn.Module):
     """时间序列预测Transformer模型"""
@@ -379,81 +382,99 @@ class ETFPricePredictor:
         return results
 
     
-    async def call_llm_api(self, df: pd.DataFrame, llm_type: str = 'deepseek') -> Dict:
-        """调用大模型API进行预测"""
-        from .config import LLM_API_CONFIG
-        import httpx
+#     async def call_llm_api(self, df: pd.DataFrame, llm_type: str = 'deepseek') -> Dict:
+#         """调用大模型API进行预测"""
+#         from .config import LLM_API_CONFIG
+#         import httpx
         
-        config = LLM_API_CONFIG.get(llm_type)
-        if not config or not config.get('enabled', False):
-            return {'error': f'LLM {llm_type} 未启用', 'success': False}
+#         config = LLM_API_CONFIG.get(llm_type)
+#         if not config or not config.get('enabled', False):
+#             return {'error': f'LLM {llm_type} 未启用', 'success': False}
         
-        # 准备数据摘要
-        data_summary = {
-            'last_price': float(df['close'].iloc[-1]),
-            'ma5': float(df['close'].rolling(5).mean().iloc[-1]),
-            'ma20': float(df['close'].rolling(20).mean().iloc[-1]),
-            'volatility': float(df['close'].pct_change().std() * np.sqrt(252))
-        }
+#         # 准备数据摘要
+#         data_summary = {
+#             'last_price': float(df['close'].iloc[-1]),
+#             'ma5': float(df['close'].rolling(5).mean().iloc[-1]),
+#             'ma20': float(df['close'].rolling(20).mean().iloc[-1]),
+#             'volatility': float(df['close'].pct_change().std() * np.sqrt(252))
+#         }
         
-        prompt = f"""基于以下ETF数据预测未来20天价格走势：
-        最新价格: {data_summary['last_price']:.3f}
-        5日均线: {data_summary['ma5']:.3f}
-        20日均线: {data_summary['ma20']:.3f}
-        年化波动率: {data_summary['volatility']:.3f}
+#         data_str = self.convert_stock_data(df)
+#         prompt = f"""基于以下股票基金数据预测未来20天价格走势：
+#         5日均线: {data_summary['ma5']:.3f}
+#         20日均线: {data_summary['ma20']:.3f}
+#         年化波动率: {data_summary['volatility']:.3f}
         
-        请输出20天的预测价格（以JSON数组格式），只返回价格数组。"""
+# 【每日数据】
+# {data_str}
+#         请输出未来20天的预测价格。
+#         ## 按如下格式输出JSON
+# ```json
+# {{
+#     "stocks": {{
+#         "SYMBOL": {{
+#             "latest_date": "YYYY-MM-DD",
+#             "latest_close": 数字,
+#             "1D": {{
+#                 "forecast": {{"date":[], "open":[], "high":[], "low":[], "close":[], "volume":[], "amount":[]}},
+#                 "accuracy_metrics": {{"mae":0, "rmse":0, "mape":0, "direction_accuracy":0, "max_error":0}},
+#                 "analysis_summary": {{"predicted_trend":"", "expected_return":0, "confidence_level":"", "key_observations":"", "recommendation":"", "risk_warning":""}}
+#             }}
+           
+#         }}
+#     }}
+# }}"""
+#         system_prompt = AGENT_SYSTEM_PROMPT + "\n" + AGENT_SYSTEM_PROMPT_EXTENDED
+#         messages = [{"role": "system", "content":system_prompt},{"role": "user", "content": prompt}]
         
-        messages = [{"role": "user", "content": prompt}]
-        
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    config['api_base'],
-                    headers={
-                        "Authorization": f"Bearer {config['api_key']}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": config['model'],
-                        "messages": messages,
-                        "temperature": 0.7
-                    }
-                )
-                result = response.json()
-                content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+#         try:
+#             async with httpx.AsyncClient(timeout=30.0) as client:
+#                 response = await client.post(
+#                     config['api_base'],
+#                     headers={
+#                         "Authorization": f"Bearer {config['api_key']}",
+#                         "Content-Type": "application/json"
+#                     },
+#                     json={
+#                         "model": config['model'],
+#                         "messages": messages,
+#                         "temperature": 0.7
+#                     }
+#                 )
+#                 result = response.json()
+#                 content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
                 
-                # 尝试解析JSON响应
-                import re
-                json_match = re.search(r'\[[\d.,\s]+\]', content)
-                if json_match:
-                    import json
-                    pred_prices = json.loads(json_match.group())
-                    if len(pred_prices) >= 20:
-                        pred_prices = pred_prices[:20]
-                        pred_dates = [(df.index[-1] + timedelta(days=i+1)).strftime('%Y-%m-%d') 
-                                     for i in range(len(pred_prices))]
+#                 # 尝试解析JSON响应
+#                 import re
+#                 json_match = re.search(r'\[[\d.,\s]+\]', content)
+#                 if json_match:
+#                     import json
+#                     pred_prices = json.loads(json_match.group())
+#                     if len(pred_prices) >= 20:
+#                         pred_prices = pred_prices[:20]
+#                         pred_dates = [(df.index[-1] + timedelta(days=i+1)).strftime('%Y-%m-%d') 
+#                                      for i in range(len(pred_prices))]
                         
-                        return {
-                            'success': True,
-                            'model': config['name'],
-                            'dates': pred_dates,
-                            'close': pred_prices,
-                            'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
-                            'confidence': 0.7,
-                            'is_llm': True,
-                            'raw_response': content
-                        }
+#                         return {
+#                             'success': True,
+#                             'model': config['name'],
+#                             'dates': pred_dates,
+#                             'close': pred_prices,
+#                             'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
+#                             'confidence': 0.7,
+#                             'is_llm': True,
+#                             'raw_response': content
+#                         }
                 
-                return {
-                    'success': True,
-                    'model': config['name'],
-                    'response': content,
-                    'is_llm': True,
-                    'raw_response': content
-                }
-        except Exception as e:
-            return {'error': str(e), 'success': False}
+#                 return {
+#                     'success': True,
+#                     'model': config['name'],
+#                     'response': content,
+#                     'is_llm': True,
+#                     'raw_response': content
+#                 }
+#         except Exception as e:
+#             return {'error': str(e), 'success': False}
     
     def get_all_predictions(self, df: pd.DataFrame) -> Dict:
         """获取所有预测结果（GPU本地 + Transformer-LSTM）"""
@@ -858,300 +879,327 @@ class ETFPricePredictor:
         }
         
 
-    def call_qwen(self, df: pd.DataFrame) -> Dict:
-        """调用本地 Qwen 模型进行预测"""
-        try:
-            from .llm_client import get_llm_client
+    # def convert_stock_data(self, symbol, df, days: int = 90) -> Dict:
+    #     """将ETF数据转换为CSV字符串格式"""
+    #     csv_string=""
+    #     try:
+    #         if df is None or df.empty:
+    #             return csv_string
             
-            llm = get_llm_client()
+    #         # 数据预处理
+    #         # df['date'] = pd.to_datetime(df['date'])
+    #         df.loc[:, 'date'] = pd.to_datetime(df['date'])
+    #         df = df.set_index('date')
+    #         df = df.ffill().bfill()
+    #         df = df.tail(days)
             
-            if len(df) < 30:
-                return {
-                    'success': False,
-                    'error': f'数据不足，需要至少 30 个交易日，当前只有 {len(df)} 个',
-                    'is_qwen': True
-                }
+    #         # ✅ 转换为CSV字符串(省Token)
+    #         csv_string = df[['open', 'high', 'low', 'close', 'volume','amount']].round(4).to_csv(
+    #             header=False, 
+    #             float_format='%.4f',
+    #             date_format='%Y-%m-%d'
+    #         )
+
+    #     except Exception as e:
+    #         print(f"❌ 获取 {symbol} 数据失败: {e}")
+        
+    #     return csv_string
+    
+    
+#     def call_qwen(self, df: pd.DataFrame) -> Dict:
+#         """调用本地 Qwen 模型进行预测"""
+#         try:
+#             from .llm_client import get_llm_client
             
-            # 准备数据
-            n_days = min(100, len(df))
-            recent_df = df.tail(n_days).copy()
+#             llm = get_llm_client()
             
-            # 重置索引获取日期列
-            if recent_df.index.name is None:
-                recent_df = recent_df.reset_index()
-                recent_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume'][:len(recent_df.columns)]
-            else:
-                recent_df = recent_df.reset_index()
+#             if len(df) < 30:
+#                 return {
+#                     'success': False,
+#                     'error': f'数据不足，需要至少 30 个交易日，当前只有 {len(df)} 个',
+#                     'is_qwen': True
+#                 }
             
-            # 格式化数据
-            data_rows = []
-            for _, row in recent_df.iterrows():
-                date_val = row[0] if isinstance(row[0], (pd.Timestamp, datetime, str)) else row['date']
-                date_str = date_val.strftime('%Y-%m-%d') if hasattr(date_val, 'strftime') else str(date_val)
+#             # 准备数据
+#             n_days = min(100, len(df))
+#             recent_df = df.tail(n_days).copy()
+            
+#             # 重置索引获取日期列
+#             if recent_df.index.name is None:
+#                 recent_df = recent_df.reset_index()
+#                 recent_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume'][:len(recent_df.columns)]
+#             else:
+#                 recent_df = recent_df.reset_index()
+            
+#             # 格式化数据
+#             data_rows = []
+#             for _, row in recent_df.iterrows():
+#                 date_val = row[0] if isinstance(row[0], (pd.Timestamp, datetime, str)) else row['date']
+#                 date_str = date_val.strftime('%Y-%m-%d') if hasattr(date_val, 'strftime') else str(date_val)
                 
-                open_val = row[1] if len(row) > 1 else row['open']
-                high_val = row[2] if len(row) > 2 else row['high']
-                low_val = row[3] if len(row) > 3 else row['low']
-                close_val = row[4] if len(row) > 4 else row['close']
-                volume_val = row[5] if len(row) > 5 else row['volume']
+#                 open_val = row[1] if len(row) > 1 else row['open']
+#                 high_val = row[2] if len(row) > 2 else row['high']
+#                 low_val = row[3] if len(row) > 3 else row['low']
+#                 close_val = row[4] if len(row) > 4 else row['close']
+#                 volume_val = row[5] if len(row) > 5 else row['volume']
                 
-                data_rows.append(
-                    f"{date_str} | O:{open_val:.4f} H:{high_val:.4f} "
-                    f"L:{low_val:.4f} C:{close_val:.4f} V:{volume_val:.0f}"
-                )
+#                 data_rows.append(
+#                     f"{date_str} | O:{open_val:.4f} H:{high_val:.4f} "
+#                     f"L:{low_val:.4f} C:{close_val:.4f} V:{volume_val:.0f}"
+#                 )
             
-            data_str = "\n".join(data_rows)
+#             data_str = "\n".join(data_rows)
             
-            current_price = float(df['close'].iloc[-1])
-            price_high = float(df['high'].max())
-            price_low = float(df['low'].min())
+#             current_price = float(df['close'].iloc[-1])
+#             price_high = float(df['high'].max())
+#             price_low = float(df['low'].min())
             
-            prompt = f"""你是一个专业的 ETF 技术分析师。请基于以下最近 {len(recent_df)} 个交易日的每日 OHLCV 数据，分析技术指标并预测未来 20 个交易日的收盘价。
+#             prompt = f"""你是一个专业的 ETF 技术分析师。请基于以下最近 {len(recent_df)} 个交易日的每日 OHLCV 数据，分析技术指标并预测未来 20 个交易日的收盘价。
 
-【数据统计】
-- 数据周期: {len(recent_df)} 个交易日
-- 当前价格: {current_price:.4f}
-- 期间最高: {price_high:.4f}
-- 期间最低: {price_low:.4f}
+# 【数据统计】
+# - 数据周期: {len(recent_df)} 个交易日
+# - 当前价格: {current_price:.4f}
+# - 期间最高: {price_high:.4f}
+# - 期间最低: {price_low:.4f}
 
-【每日数据】
-{data_str}
+# 【每日数据】
+# {data_str}
 
-请分析技术指标（均线、RSI、MACD、布林带、成交量趋势等），然后预测未来 20 个交易日的收盘价。
+# 请分析技术指标（均线、RSI、MACD、布林带、成交量趋势等），然后预测未来 20 个交易日的收盘价。
 
-最终输出格式：以 JSON 数组格式返回 20 个预测价格，例如：[3.85, 3.88, 3.92, ...]"""
+# 最终输出格式：以 JSON 数组格式返回 20 个预测价格，例如：[3.85, 3.88, 3.92, ...]"""
 
-            response = llm.generate_response(
-                messages=[{"role": "user", "content": prompt}],
-                max_new_tokens=800,
-                temperature=0.2,
-                enable_thinking=False
-            )
+#             response = llm.generate_response(
+#                 messages=[{"role": "user", "content": prompt}],
+#                 max_new_tokens=800,
+#                 temperature=0.2,
+#                 enable_thinking=False
+#             )
             
-            # 解析 JSON 响应
-            import re
-            import json
+#             # 解析 JSON 响应
+#             import re
+#             import json
             
-            json_match = re.search(r'\[[\d.,\s]+\]', response)
-            if json_match:
-                try:
-                    pred_prices = json.loads(json_match.group())
-                    if len(pred_prices) >= 20:
-                        pred_prices = pred_prices[:20]
+#             json_match = re.search(r'\[[\d.,\s]+\]', response)
+#             if json_match:
+#                 try:
+#                     pred_prices = json.loads(json_match.group())
+#                     if len(pred_prices) >= 20:
+#                         pred_prices = pred_prices[:20]
                         
-                        # 过滤异常值
-                        pred_prices = [p for p in pred_prices if p > 0 and p < current_price * 2.5]
-                        if len(pred_prices) >= 20:
-                            pred_prices = pred_prices[:20]
+#                         # 过滤异常值
+#                         pred_prices = [p for p in pred_prices if p > 0 and p < current_price * 2.5]
+#                         if len(pred_prices) >= 20:
+#                             pred_prices = pred_prices[:20]
                             
-                            # ✅ 使用公共函数生成日期
-                            last_date = get_last_date(df)
-                            future_dates =  generate_future_daily_dates(last_date, len(pred_prices))
+#                             # ✅ 使用公共函数生成日期
+#                             last_date = get_last_date(df)
+#                             future_dates =  generate_future_daily_dates(last_date, len(pred_prices))
                             
-                            return {
-                                'success': True,
-                                'model': 'Qwen-Local',
-                                'dates': future_dates,
-                                'close': pred_prices,
-                                'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
-                                'confidence': 0.6,
-                                'is_qwen': True,
-                                'raw_response': response[:200] + "..." if len(response) > 200 else response
-                            }
-                except:
-                    pass
+#                             return {
+#                                 'success': True,
+#                                 'model': 'Qwen-Local',
+#                                 'dates': future_dates,
+#                                 'close': pred_prices,
+#                                 'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
+#                                 'confidence': 0.6,
+#                                 'is_qwen': True,
+#                                 'raw_response': response[:200] + "..." if len(response) > 200 else response
+#                             }
+#                 except:
+#                     pass
             
-            return {
-                'success': False,
-                'error': '无法解析 Qwen 响应为有效的价格数组',
-                'raw_response': response[:500] if response else '',
-                'is_qwen': True
-            }
+#             return {
+#                 'success': False,
+#                 'error': '无法解析 Qwen 响应为有效的价格数组',
+#                 'raw_response': response[:500] if response else '',
+#                 'is_qwen': True
+#             }
             
-        except Exception as e:
-            return {'error': str(e), 'success': False, 'is_qwen': True}
+#         except Exception as e:
+#             return {'error': str(e), 'success': False, 'is_qwen': True}
 
-    def _build_llm_prompt(self, df: pd.DataFrame, use_full_data: bool = True) -> str:
-        """构建 LLM 提示词"""
-        current_price = float(df['close'].iloc[-1])
+    # def _build_llm_prompt(self, df: pd.DataFrame, use_full_data: bool = True) -> str:
+    #     """构建 LLM 提示词"""
+    #     current_price = float(df['close'].iloc[-1])
         
-        if use_full_data:
-            n_days = min(100, len(df))
-            recent_df = df.tail(n_days).copy()
+    #     if use_full_data:
+    #         n_days = min(100, len(df))
+    #         recent_df = df.tail(n_days).copy()
             
-            if recent_df.index.name is None:
-                recent_df = recent_df.reset_index()
-                recent_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume'][:len(recent_df.columns)]
-            else:
-                recent_df = recent_df.reset_index()
+    #         if recent_df.index.name is None:
+    #             recent_df = recent_df.reset_index()
+    #             recent_df.columns = ['date', 'open', 'high', 'low', 'close', 'volume'][:len(recent_df.columns)]
+    #         else:
+    #             recent_df = recent_df.reset_index()
             
-            data_rows = []
-            for _, row in recent_df.iterrows():
-                date_val = row[0] if isinstance(row[0], (pd.Timestamp, datetime, str)) else row['date']
-                date_str = date_val.strftime('%Y-%m-%d') if hasattr(date_val, 'strftime') else str(date_val)
+    #         data_rows = []
+    #         for _, row in recent_df.iterrows():
+    #             date_val = row[0] if isinstance(row[0], (pd.Timestamp, datetime, str)) else row['date']
+    #             date_str = date_val.strftime('%Y-%m-%d') if hasattr(date_val, 'strftime') else str(date_val)
                 
-                open_val = row[1] if len(row) > 1 else row['open']
-                high_val = row[2] if len(row) > 2 else row['high']
-                low_val = row[3] if len(row) > 3 else row['low']
-                close_val = row[4] if len(row) > 4 else row['close']
-                volume_val = row[5] if len(row) > 5 else row['volume']
+    #             open_val = row[1] if len(row) > 1 else row['open']
+    #             high_val = row[2] if len(row) > 2 else row['high']
+    #             low_val = row[3] if len(row) > 3 else row['low']
+    #             close_val = row[4] if len(row) > 4 else row['close']
+    #             volume_val = row[5] if len(row) > 5 else row['volume']
                 
-                data_rows.append(
-                    f"{date_str} | O:{open_val:.4f} H:{high_val:.4f} "
-                    f"L:{low_val:.4f} C:{close_val:.4f} V:{volume_val:.0f}"
-                )
+    #             data_rows.append(
+    #                 f"{date_str} | O:{open_val:.4f} H:{high_val:.4f} "
+    #                 f"L:{low_val:.4f} C:{close_val:.4f} V:{volume_val:.0f}"
+    #             )
             
-            data_str = "\n".join(data_rows)
-            price_high = float(df['high'].max())
-            price_low = float(df['low'].min())
+    #         data_str = "\n".join(data_rows)
+    #         price_high = float(df['high'].max())
+    #         price_low = float(df['low'].min())
             
-            return f"""你是一个专业的 ETF 技术分析师。请基于以下最近 {len(recent_df)} 个交易日的每日 OHLCV 数据，分析技术指标并预测未来 20 个交易日的收盘价。
+    #         return f"""你是一个专业的 ETF 技术分析师。请基于以下最近 {len(recent_df)} 个交易日的每日 OHLCV 数据，分析技术指标并预测未来 20 个交易日的收盘价。
 
-    【数据统计】
-    - 数据周期: {len(recent_df)} 个交易日
-    - 当前价格: {current_price:.4f}
-    - 期间最高: {price_high:.4f}
-    - 期间最低: {price_low:.4f}
+    # 【数据统计】
+    # - 数据周期: {len(recent_df)} 个交易日
+    # - 当前价格: {current_price:.4f}
+    # - 期间最高: {price_high:.4f}
+    # - 期间最低: {price_low:.4f}
 
-    【每日数据】
-    {data_str}
+    # 【每日数据】
+    # {data_str}
 
-    请分析技术指标（均线、RSI、MACD、布林带、成交量趋势等），然后预测未来 20 个交易日的收盘价。
+    # 请分析技术指标（均线、RSI、MACD、布林带、成交量趋势等），然后预测未来 20 个交易日的收盘价。
 
-    最终输出格式：以 JSON 数组格式返回 20 个预测价格，例如：[3.85, 3.88, 3.92, ...]"""
-        else:
-            ma5 = float(df['close'].rolling(5).mean().iloc[-1])
-            ma20 = float(df['close'].rolling(20).mean().iloc[-1])
-            volatility = float(df['close'].pct_change().std() * np.sqrt(252))
+    # 最终输出格式：以 JSON 数组格式返回 20 个预测价格，例如：[3.85, 3.88, 3.92, ...]"""
+    #     else:
+    #         ma5 = float(df['close'].rolling(5).mean().iloc[-1])
+    #         ma20 = float(df['close'].rolling(20).mean().iloc[-1])
+    #         volatility = float(df['close'].pct_change().std() * np.sqrt(252))
             
-            return f"""基于以下ETF数据预测未来20天价格走势：
-    最新价格: {current_price:.3f}
-    5日均线: {ma5:.3f}
-    20日均线: {ma20:.3f}
-    年化波动率: {volatility:.3f}
+    #         return f"""基于以下ETF数据预测未来20天价格走势：
+    # 最新价格: {current_price:.3f}
+    # 5日均线: {ma5:.3f}
+    # 20日均线: {ma20:.3f}
+    # 年化波动率: {volatility:.3f}
 
-    请输出20天的预测价格（以JSON数组格式），只返回价格数组。"""
+    # 请输出20天的预测价格（以JSON数组格式），只返回价格数组。"""
 
-    def _parse_llm_response(self, response: str, df: pd.DataFrame, model_name: str, is_local: bool = True) -> Dict:
-        """解析 LLM 响应"""
-        import re
-        import json
+    # def _parse_llm_response(self, response: str, df: pd.DataFrame, model_name: str, is_local: bool = True) -> Dict:
+    #     """解析 LLM 响应"""
+    #     import re
+    #     import json
         
-        current_price = float(df['close'].iloc[-1])
+    #     current_price = float(df['close'].iloc[-1])
         
-        json_match = re.search(r'\[[\d.,\s]+\]', response)
-        if json_match:
-            try:
-                pred_prices = json.loads(json_match.group())
-                if len(pred_prices) >= 20:
-                    pred_prices = pred_prices[:20]
-                    pred_prices = [p for p in pred_prices if p > 0 and p < current_price * 2.5]
-                    if len(pred_prices) >= 20:
-                        pred_prices = pred_prices[:20]
+    #     json_match = re.search(r'\[[\d.,\s]+\]', response)
+    #     if json_match:
+    #         try:
+    #             pred_prices = json.loads(json_match.group())
+    #             if len(pred_prices) >= 20:
+    #                 pred_prices = pred_prices[:20]
+    #                 pred_prices = [p for p in pred_prices if p > 0 and p < current_price * 2.5]
+    #                 if len(pred_prices) >= 20:
+    #                     pred_prices = pred_prices[:20]
                         
-                        last_date = get_last_date(df)
-                        future_dates =  generate_future_daily_dates(last_date, len(pred_prices))
+    #                     last_date = get_last_date(df)
+    #                     future_dates =  generate_future_daily_dates(last_date, len(pred_prices))
                         
-                        return {
-                            'success': True,
-                            'model': model_name,
-                            'dates': future_dates,
-                            'close': pred_prices,
-                            'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
-                            'confidence': 0.6,
-                            'is_llm': True,
-                            'is_local': is_local,
-                            'raw_response': response[:200] + "..." if len(response) > 200 else response
-                        }
-            except:
-                pass
+    #                     return {
+    #                         'success': True,
+    #                         'model': model_name,
+    #                         'dates': future_dates,
+    #                         'close': pred_prices,
+    #                         'predicted_change': (pred_prices[-1] - pred_prices[0]) / pred_prices[0],
+    #                         'confidence': 0.6,
+    #                         'is_llm': True,
+    #                         'is_local': is_local,
+    #                         'raw_response': response[:200] + "..." if len(response) > 200 else response
+    #                     }
+    #         except:
+    #             pass
         
-        return {
-            'success': False,
-            'error': '无法解析 LLM 响应为有效的价格数组',
-            'raw_response': response[:500] if response else '',
-            'is_llm': True,
-            'is_local': is_local
-        }
+    #     return {
+    #         'success': False,
+    #         'error': '无法解析 LLM 响应为有效的价格数组',
+    #         'raw_response': response[:500] if response else '',
+    #         'is_llm': True,
+    #         'is_local': is_local
+    #     }
 
-    def call_llm(
-        self, 
-        df: pd.DataFrame, 
-        llm_type: str = 'qwen_local',
-        use_full_data: bool = True
-    ) -> Dict:
-        """
-        调用 LLM 进行预测（统一接口）
+    # def call_llm(
+    #     self, 
+    #     df: pd.DataFrame, 
+    #     llm_type: str = 'qwen_local',
+    #     use_full_data: bool = True
+    # ) -> Dict:
+    #     """
+    #     调用 LLM 进行预测（统一接口）
         
-        Args:
-            df: 历史数据 DataFrame
-            llm_type: LLM 类型 ('qwen_local', 'deepseek', 'openai')
-            use_full_data: 是否使用完整历史数据（True=完整数据，False=摘要数据）
+    #     Args:
+    #         df: 历史数据 DataFrame
+    #         llm_type: LLM 类型 ('qwen_local', 'deepseek', 'openai')
+    #         use_full_data: 是否使用完整历史数据（True=完整数据，False=摘要数据）
         
-        Returns:
-            预测结果字典
-        """
-        from .config import LLM_API_CONFIG
-        import re
-        import json
-        import httpx
+    #     Returns:
+    #         预测结果字典
+    #     """
+    #     from .config import LLM_API_CONFIG
+    #     import re
+    #     import json
+    #     import httpx
         
-        try:
-            # 1. 准备数据
-            prompt = self._build_llm_prompt(df, use_full_data)
+    #     try:
+    #         # 1. 准备数据
+    #         prompt = self._build_llm_prompt(df, use_full_data)
             
-            # 2. 根据类型调用不同后端
-            if llm_type == 'qwen_local':
-                # 本地 Qwen 推理
-                from .llm_client import get_llm_client
-                llm = get_llm_client()
+    #         # 2. 根据类型调用不同后端
+    #         if llm_type == 'qwen_local':
+    #             # 本地 Qwen 推理
+    #             from .llm_client import get_llm_client
+    #             llm = get_llm_client()
                 
-                response = llm.generate_response(
-                    messages=[{"role": "user", "content": prompt}],
-                    max_new_tokens=800,
-                    temperature=0.2,
-                    enable_thinking=False
-                )
-                model_name = 'Qwen-Local'
-                is_llm = True
-                is_local = True
+    #             response = llm.generate_response(
+    #                 messages=[{"role": "user", "content": prompt}],
+    #                 max_new_tokens=800,
+    #                 temperature=0.2,
+    #                 enable_thinking=False
+    #             )
+    #             model_name = 'Qwen-Local'
+    #             is_llm = True
+    #             is_local = True
                 
-            elif llm_type in ['deepseek', 'openai']:
-                # 远程 API 调用
-                config = LLM_API_CONFIG.get('external', {}).get(llm_type)
-                if not config or not config.get('enabled', False):
-                    return {'error': f'LLM {llm_type} 未启用', 'success': False}
+    #         elif llm_type in ['deepseek', 'openai']:
+    #             # 远程 API 调用
+    #             config = LLM_API_CONFIG.get('external', {}).get(llm_type)
+    #             if not config or not config.get('enabled', False):
+    #                 return {'error': f'LLM {llm_type} 未启用', 'success': False}
                 
-                async def _call_remote():
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        response = await client.post(
-                            config['api_base'],
-                            headers={
-                                "Authorization": f"Bearer {config['api_key']}",
-                                "Content-Type": "application/json"
-                            },
-                            json={
-                                "model": config['model'],
-                                "messages": [{"role": "user", "content": prompt}],
-                                "temperature": 0.7
-                            }
-                        )
-                        return response.json()
+    #             async def _call_remote():
+    #                 async with httpx.AsyncClient(timeout=30.0) as client:
+    #                     response = await client.post(
+    #                         config['api_base'],
+    #                         headers={
+    #                             "Authorization": f"Bearer {config['api_key']}",
+    #                             "Content-Type": "application/json"
+    #                         },
+    #                         json={
+    #                             "model": config['model'],
+    #                             "messages": [{"role": "user", "content": prompt}],
+    #                             "temperature": 0.7
+    #                         }
+    #                     )
+    #                     return response.json()
                 
-                try:
-                    import asyncio
-                    result = asyncio.run(_call_remote())
-                    response = result.get('choices', [{}])[0].get('message', {}).get('content', '')
-                    model_name = config.get('name', llm_type)
-                    is_llm = True
-                    is_local = False
-                except Exception as e:
-                    return {'error': str(e), 'success': False}
-            else:
-                return {'error': f'不支持的 LLM 类型: {llm_type}', 'success': False}
+    #             try:
+    #                 import asyncio
+    #                 result = asyncio.run(_call_remote())
+    #                 response = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+    #                 model_name = config.get('name', llm_type)
+    #                 is_llm = True
+    #                 is_local = False
+    #             except Exception as e:
+    #                 return {'error': str(e), 'success': False}
+    #         else:
+    #             return {'error': f'不支持的 LLM 类型: {llm_type}', 'success': False}
             
-            # 3. 解析响应（通用逻辑）
-            return self._parse_llm_response(response, df, model_name, is_local)
+    #         # 3. 解析响应（通用逻辑）
+    #         return self._parse_llm_response(response, df, model_name, is_local)
             
-        except Exception as e:
-            return {'error': str(e), 'success': False}
+    #     except Exception as e:
+    #         return {'error': str(e), 'success': False}

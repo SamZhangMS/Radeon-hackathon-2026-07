@@ -504,13 +504,14 @@ class FeatureDemo:
                 self.results['prediction'] = {
                     'success': False, 
                     'error': '数据不足',
-                    'api_name': self.api_endpoints.get('prediction', {}).get('name', '价格预测'),
+                    'api_name': '价格预测',
                     'api_endpoint': 'POST /api/predict'
                 }
                 print("   ❌ 数据不足")
                 return
             
-            pred = self.predictor.predict(df, use_ensemble=True)
+            # ✅ 使用 advisor.predict_with_llm（新方法）
+            pred = self.advisor.predict_with_llm(symbol, df)
             
             if pred.get('success', False):
                 self.results['prediction'] = {
@@ -521,8 +522,9 @@ class FeatureDemo:
                         'confidence': pred.get('confidence'),
                         'dates': pred.get('dates', [])[:10],
                         'close': pred.get('close', [])[:10],
+                        'analysis': pred.get('analysis', ''),
                     },
-                    'api_name': self.api_endpoints.get('prediction', {}).get('name', '价格预测'),
+                    'api_name': '价格预测',
                     'api_endpoint': 'POST /api/predict',
                     'formatted': f"预测变化: {pred.get('predicted_change', 0):.2%}, 置信度: ±{pred.get('confidence', 0):.2%}"
                 }
@@ -531,7 +533,7 @@ class FeatureDemo:
                 self.results['prediction'] = {
                     'success': False, 
                     'error': pred.get('error', '预测失败'),
-                    'api_name': self.api_endpoints.get('prediction', {}).get('name', '价格预测'),
+                    'api_name': '价格预测',
                     'api_endpoint': 'POST /api/predict'
                 }
                 print(f"   ❌ 预测失败: {pred.get('error', '未知错误')}")
@@ -539,11 +541,11 @@ class FeatureDemo:
             self.results['prediction'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': self.api_endpoints.get('prediction', {}).get('name', '价格预测'),
+                'api_name': '价格预测',
                 'api_endpoint': 'POST /api/predict'
             }
             print(f"   ❌ 失败: {e}")
-    
+
     async def _demo_recommendation(self, symbol: str):
         """演示投资建议"""
         try:
@@ -552,12 +554,13 @@ class FeatureDemo:
                 self.results['recommendation'] = {
                     'success': False, 
                     'error': '数据不足',
-                    'api_name': self.api_endpoints.get('recommendation', {}).get('name', '投资建议'),
+                    'api_name': '投资建议',
                     'api_endpoint': 'POST /api/recommend'
                 }
                 print("   ❌ 数据不足")
                 return
             
+            # ✅ advisor.get_recommendation 已整合 LLM + 规则引擎
             advice = self.advisor.get_recommendation(symbol, df)
             
             self.results['recommendation'] = {
@@ -572,8 +575,9 @@ class FeatureDemo:
                     'reasons': advice.get('reasons', [])[:5],
                     'target_price': advice.get('target_price'),
                     'stop_loss': advice.get('stop_loss'),
+                    'generatedby': advice.get('generatedby', 'N/A'),
                 },
-                'api_name': self.api_endpoints.get('recommendation', {}).get('name', '投资建议'),
+                'api_name': '投资建议',
                 'api_endpoint': 'POST /api/recommend',
                 'formatted': f"建议: {advice.get('signal', 'N/A')}, 评分: {advice.get('score', 0):.1f}/8"
             }
@@ -582,7 +586,7 @@ class FeatureDemo:
             self.results['recommendation'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': self.api_endpoints.get('recommendation', {}).get('name', '投资建议'),
+                'api_name': '投资建议',
                 'api_endpoint': 'POST /api/recommend'
             }
             print(f"   ❌ 失败: {e}")

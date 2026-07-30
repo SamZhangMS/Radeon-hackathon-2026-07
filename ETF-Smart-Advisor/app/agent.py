@@ -589,27 +589,29 @@ class ETFAdvisorAgent:
         return report
     
     async def _get_prediction(self, symbol: str) -> str:
-        """获取价格预测"""
+        """获取价格预测 - 使用LLM预测"""
         df = self.fetcher.get_history(symbol)
         if df.empty:
             return f"无法获取 {symbol} 的数据"
         
-        pred = self.predictor.predict(df, use_ensemble=True)
-        if not pred.get('success', False):
+        # ✅ 使用 advisor.predict_with_llm（整合后的方法）
+        pred = self.advisor.predict_with_llm(symbol, df)
+        
+        if pred.get('success', False):
+            report = f"🔮 {symbol} 价格预测\n"
+            report += "="*50 + "\n\n"
+            report += f"预测变化: {pred.get('predicted_change', 0):.2%}\n"
+            report += f"置信度: ±{pred.get('confidence', 0):.2%}\n"
+            if pred.get('analysis'):
+                report += f"\n📝 分析: {pred['analysis']}\n"
+            report += "\n📅 预测价格 (前10天):\n"
+            dates = pred.get('dates', [])[:10]
+            closes = pred.get('close', [])[:10]
+            for d, c in zip(dates, closes):
+                report += f"  {d}: {c:.3f}\n"
+            return report
+        else:
             return f"预测失败: {pred.get('error', '未知错误')}"
-        
-        report = f"🔮 {symbol} 价格预测\n"
-        report += "="*50 + "\n\n"
-        report += f"预测变化: {pred.get('predicted_change', 0):.2%}\n"
-        report += f"置信区间: ±{pred.get('confidence', 0):.2%}\n\n"
-        
-        report += "📅 预测价格表 (前10天):\n"
-        dates = pred.get('dates', [])[:10]
-        closes = pred.get('close', [])[:10]
-        for d, c in zip(dates, closes):
-            report += f"  {d}: {c:.3f}\n"
-        
-        return report
     
     async def _analyze_technical(self, symbol: str) -> str:
         """技术分析"""
@@ -749,7 +751,13 @@ class ETFAdvisorAgent:
             elif step["name"] == "predict_price":
                 result = await self._get_prediction(symbol)
             elif step["name"] == "get_recommendation":
-                result = await self._get_recommendation(symbol)
+                # ✅ 使用 advisor.get_recommendation（内部已整合LLM）
+                df = self.fetcher.get_history(symbol)
+                if not df.empty:
+                    advice = self.advisor.get_recommendation(symbol, df)
+                    result = self._format_advice(advice)
+                else:
+                    result = "无法获取数据"
             elif step["name"] == "generate_report":
                 result = await self._generate_report(symbol)
             else:
@@ -761,6 +769,26 @@ class ETFAdvisorAgent:
         report += f"\n\n⚠️ 风险提示: 投资有风险，决策需谨慎。"
         return report
     
+    def _format_advice(self, advice: Dict) -> str:
+        """格式化投资建议"""
+        if not advice:
+            return "无法获取建议"
+        
+        emoji = {'buy': '🟢', 'hold': '🟡', 'sell': '🔴', 'neutral': '⚪'}
+        risk_emoji = {'low': '🟢', 'medium': '🟡', 'high': '🔴'}
+        
+        report = f"{emoji.get(advice.get('recommendation', 'neutral'), '⚪')} 建议: {advice.get('signal', 'N/A')}\n"
+        report += f"评分: {advice.get('score', 0):.1f}/8\n"
+        report += f"置信度: {advice.get('confidence', 0):.0%}\n"
+        report += f"风险等级: {risk_emoji.get(advice.get('risk_level', 'medium'), '⚪')} {advice.get('risk_level', 'N/A')}\n"
+        report += f"目标价: {advice.get('target_price', 0):.3f}\n"
+        report += f"止损价: {advice.get('stop_loss', 0):.3f}\n\n"
+        report += "📊 分析依据:\n"
+        for reason in advice.get('reasons', []):
+            report += f"  {reason}\n"
+        
+        return report
+
     async def _get_history(self, symbol: str, period: str = "6mo") -> str:
         """获取历史数据"""
         df = self.fetcher.get_history(symbol, period)
