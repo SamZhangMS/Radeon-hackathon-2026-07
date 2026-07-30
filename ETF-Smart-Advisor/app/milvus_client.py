@@ -96,7 +96,7 @@ class MilvusClient:
     def _init_milvus_lite(self):
         """初始化 Milvus Lite - 使用新版 PyMilvus API"""
         try:
-            uri = f"file:{self.milvus_db_path}"
+            uri = f"file:{self.milvus_data_dir}"
             self._client = PyMilvusClient(uri=uri)
             logger.info(f"✅ Milvus Lite 已连接: {self.milvus_data_dir}")
             
