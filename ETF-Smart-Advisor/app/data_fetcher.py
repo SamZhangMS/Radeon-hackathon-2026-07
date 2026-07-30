@@ -60,7 +60,10 @@ class ETFDataFetcher:
         if 'date' in df.columns:
             df['date'] = pd.to_datetime(df['date'])
             df = df.set_index('date').sort_index()
-        
+        if 'money' in df.columns:
+            df.rename(columns={
+                "money": "amount"
+            }, inplace=True)
         print(f'get_history:{symbol}\n{df}')
         return df
     def get_etf_list(self) -> List[str]:
