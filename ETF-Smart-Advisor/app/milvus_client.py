@@ -57,7 +57,6 @@ class MilvusClient:
         
         # Milvus Lite 数据目录
         self.milvus_data_dir = Path(BASE_DIR / "milvus_data.db")
-        self.milvus_data_dir.mkdir(parents=True, exist_ok=True)
         
         # 加载 Embedding 模型
         try:
@@ -96,7 +95,8 @@ class MilvusClient:
     def _init_milvus_lite(self):
         """初始化 Milvus Lite - 使用新版 PyMilvus API"""
         try:
-            uri = f"file:{self.milvus_data_dir}"
+            # uri = f"file:{self.milvus_data_dir}"
+            uri = str(self.milvus_data_dir)
             self._client = PyMilvusClient(uri=uri)
             logger.info(f"✅ Milvus Lite 已连接: {self.milvus_data_dir}")
             

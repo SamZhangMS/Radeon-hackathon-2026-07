@@ -190,7 +190,7 @@ class LLMClient:
                     }
                 else:
                     error_msg = f"HTTP {response.status_code}: {response.text}"
-                    logger.error(f"vLLM 请求失败: {error_msg}")
+                    logger.error(f"vLLM [{self.vllm_model_name}]请求失败: {error_msg}")
                     return {
                         "success": False,
                         "error": error_msg,
