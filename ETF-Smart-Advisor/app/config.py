@@ -173,7 +173,7 @@ LLM_API_CONFIG = {
     "dtype": "auto",
     "device_map": "auto",
     "enable_thinking": False,
-    "max_model_len": 4096,  # ✅ 添加最大序列长度配置
+    "max_model_len": 8192  ,  # ✅ 添加最大序列长度配置
     
     # vLLM 推理配置
     "vllm": {
@@ -185,7 +185,7 @@ LLM_API_CONFIG = {
         "max_num_seqs": 32,
         "dtype": "bfloat16",
         "quantization": None,
-        "max_model_len": 4096,
+        "max_model_len": 8192  ,
     },
     
     # 外部 API 配置

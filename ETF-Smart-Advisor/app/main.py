@@ -29,6 +29,7 @@ from .milvus_client import get_milvus_client
 from .privacy.privacy_manager import PrivacyManager
 from .utils import format_exception
 
+
 # ============================================================
 # Pydantic 请求模型
 # ============================================================
@@ -324,6 +325,24 @@ async def get_top_recommendations():
     except Exception as e:
         print(f"get_top_recommendations error. Exception:{e}\nTrackback:{format_exception(e)}")
 
+@app.get("/api/top-recommendations/v2", dependencies=[Depends(verify_token)])
+async def get_top_recommendations_v2(force_update: bool = False):
+    """获取Top推荐 - Skill-based版本"""
+    try:
+        result = agent.get_top_recommendations_v2(force_update=force_update)
+        
+        if result.get('error'):
+            raise HTTPException(400, result['error'])
+        
+        return {
+            "status": "success",
+            "data": result,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        print(f"get_top_recommendations error: {e}")
+        raise HTTPException(500, str(e))
+    
 @app.post("/api/analyze", dependencies=[Depends(verify_token)])
 async def analyze_complete(request: AnalyzeRequest):
     """完整分析接口（多步骤任务规划）"""

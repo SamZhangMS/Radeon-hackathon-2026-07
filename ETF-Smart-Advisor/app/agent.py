@@ -20,6 +20,7 @@ from .config import (
 )
 from .data_fetcher import ETFDataFetcher
 from .advisor import InvestmentAdvisor
+from .advisor_v2 import InvestmentAdvisorV2
 from .predictor import ETFPricePredictor
 from .milvus_client import get_milvus_client
 from .privacy.privacy_manager import PrivacyManager
@@ -156,6 +157,7 @@ class ETFAdvisorAgent:
         # 投资顾问
         self.advisor = InvestmentAdvisor()
         
+        self.advisor2 = InvestmentAdvisorV2()
         # 价格预测
         self.predictor = ETFPricePredictor()
         
@@ -349,6 +351,21 @@ class ETFAdvisorAgent:
             print(f"get_recommendation_sync error. Exception:{e}\nTrackback:{format_exception(e)}")
             return {"success": False, "error": str(e)}
     
+    async def get_top_recommendations_v2(self,force_update: bool = False):
+        """获取Top推荐 - Skill-based版本"""
+        try:
+            result = self.advisor2.get_top_recommendations_v2(force_update=force_update)
+            
+            
+            return {
+                "status": "success",
+                "data": result,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            print(f"get_top_recommendations_v2 error. Exception:{e}\nTrackback:{format_exception(e)}")
+            return {"success": False, "error": str(e)}
+        
     def get_prediction_sync(self, symbol: str, period: str = "1y") -> Dict:
         """同步获取价格预测"""
         try:
