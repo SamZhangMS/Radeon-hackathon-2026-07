@@ -1,4 +1,4 @@
-# app/skills/base_batch_skill.py
+# app/skills/base_batch_skill.py - 修复数据保留逻辑
 
 import threading
 import time
@@ -18,8 +18,6 @@ from ..config import LLM_API_CONFIG
 class BaseBatchSkill(BaseSkill):
     """
     Batch processing skill base class with memory optimization
-    流式处理：边加载数据边生成prompt，达到token限制时立即处理
-    处理完成后只保留选中基金的数据
     """
     
     def __init__(
@@ -118,10 +116,11 @@ class BaseBatchSkill(BaseSkill):
     ) -> List[Dict]:
         """
         流式处理：边加载边生成prompt，达到限制时立即处理
-        处理完成后只保留选中基金的数据
+        ✅ 每批处理完成后，立即记录选中的基金
         """
         all_results = []
         all_loaded_data = {}  # 本地存储所有加载的数据
+        selected_symbols = set()  # ✅ 记录所有被选中的基金
         
         # 1. 获取基础prompt用于token计算
         base_prompt = self._get_base_prompt()
@@ -167,14 +166,15 @@ class BaseBatchSkill(BaseSkill):
                 if current_tokens + item_tokens > self.actual_limit:
                     # ✅ 达到限制，处理当前批次
                     if current_batch:
-                        batch_results = self._process_batch_with_data(current_batch, current_data, **kwargs)
+                        batch_results, batch_selected = self._process_batch_with_data_and_return_selected(
+                            current_batch, current_data, **kwargs
+                        )
                         if batch_results:
                             all_results.extend(batch_results)
-                            # ✅ 从缓存中删除已处理的数据（释放内存）
-                            for sym in current_batch:
-                                with self._cache_lock:
-                                    if sym in self._data_cache:
-                                        del self._data_cache[sym]
+                            # ✅ 记录本批选中的基金
+                            selected_symbols.update(batch_selected)
+                            # ✅ 只保留选中基金的数据在缓存中
+                            self._update_cache_with_selected(current_batch, batch_selected)
                     
                     # 开始新批次
                     current_batch = [symbol]
@@ -189,50 +189,73 @@ class BaseBatchSkill(BaseSkill):
             
             # 处理最后一批
             if current_batch:
-                batch_results = self._process_batch_with_data(current_batch, current_data, **kwargs)
+                batch_results, batch_selected = self._process_batch_with_data_and_return_selected(
+                    current_batch, current_data, **kwargs
+                )
                 if batch_results:
                     all_results.extend(batch_results)
-                # 清理缓存
-                for sym in current_batch:
-                    with self._cache_lock:
-                        if sym in self._data_cache:
-                            del self._data_cache[sym]
+                    selected_symbols.update(batch_selected)
+                    self._update_cache_with_selected(current_batch, batch_selected)
         
-        # ✅ 关键：根据大模型返回结果，只保留选中基金的数据
-        self._all_loaded_data = self._filter_loaded_data(all_loaded_data, all_results)
+        # ✅ 根据所有选中的基金，过滤保存的数据
+        self._all_loaded_data = {
+            symbol: data for symbol, data in all_loaded_data.items()
+            if symbol in selected_symbols
+        }
+        self._keep_symbols = selected_symbols
+        
+        print(f"   📊 Selected {len(selected_symbols)} symbols, kept {len(self._all_loaded_data)} data items")
         
         # 强制垃圾回收
         gc.collect()
         
         return all_results
     
-    def _filter_loaded_data(self, all_loaded_data: Dict[str, Any], results: List[Dict]) -> Dict[str, Any]:
+    def _process_batch_with_data_and_return_selected(
+        self, 
+        batch: List[str], 
+        batch_data: Dict[str, Any], 
+        **kwargs
+    ) -> tuple[List[Dict], Set[str]]:
         """
-        根据大模型返回结果，只保留选中基金的数据
-        子类可以重写此方法自定义过滤逻辑
+        使用已加载的数据处理批次，返回结果和选中的symbol集合
         """
-        if not results:
-            return {}
+        selected_symbols = set()
         
-        # 从结果中提取所有symbol
-        keep_symbols = set()
+        # 构建批次数据
+        batch_items = []
+        for symbol in batch:
+            data = batch_data.get(symbol)
+            if data is not None:
+                item = self._create_item_from_data(symbol, data)
+                if item:
+                    batch_items.append(item)
+        
+        if not batch_items:
+            return [], set()
+        
+        # 调用_process_batch处理
+        results = self._process_batch(batch_items, **kwargs)
+        
+        # ✅ 提取选中的symbol
         for r in results:
             symbol = r.get('symbol')
             if symbol:
-                keep_symbols.add(symbol)
+                selected_symbols.add(symbol)
         
-        # 只保留选中基金的数据
-        filtered_data = {}
-        for symbol, data in all_loaded_data.items():
-            if symbol in keep_symbols:
-                filtered_data[symbol] = data
-        
-        # 保存选中的symbol集合
-        self._keep_symbols = keep_symbols
-        
-        print(f"   📊 Filtered data: kept {len(filtered_data)} out of {len(all_loaded_data)} items")
-        
-        return filtered_data
+        return results, selected_symbols
+    
+    def _update_cache_with_selected(self, batch: List[str], selected_symbols: Set[str]):
+        """
+        更新缓存：只保留选中基金的数据
+        """
+        with self._cache_lock:
+            for sym in batch:
+                if sym not in selected_symbols:
+                    # ✅ 未选中的基金，从缓存中删除（释放内存）
+                    if sym in self._data_cache:
+                        del self._data_cache[sym]
+                # 选中的基金保留在缓存中
     
     def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
         """获取单个项目的prompt片段（子类可重写）"""
@@ -244,24 +267,9 @@ class BaseBatchSkill(BaseSkill):
         batch_data: Dict[str, Any], 
         **kwargs
     ) -> List[Dict]:
-        """
-        使用已加载的数据处理批次
-        """
-        # 构建批次数据
-        batch_items = []
-        for symbol in batch:
-            data = batch_data.get(symbol)
-            if data is not None:
-                # 构造item用于_process_batch
-                item = self._create_item_from_data(symbol, data)
-                if item:
-                    batch_items.append(item)
-        
-        if not batch_items:
-            return []
-        
-        # 调用_process_batch处理
-        return self._process_batch(batch_items, **kwargs)
+        """兼容旧接口"""
+        results, _ = self._process_batch_with_data_and_return_selected(batch, batch_data, **kwargs)
+        return results
     
     def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
         """
@@ -355,7 +363,7 @@ class BaseBatchSkill(BaseSkill):
     def execute(self, items: List[Any], keep_count: int = None, **kwargs) -> List[Dict]:
         """
         Batch execution with streaming processing
-        执行完成后，只保留大模型选中基金的数据
+        ✅ 执行完成后，只保留大模型选中基金的数据
         """
         if not items:
             return []
@@ -370,7 +378,7 @@ class BaseBatchSkill(BaseSkill):
         def data_loader(symbol: str):
             return self._load_item_data(symbol, **kwargs)
         
-        # 流式处理（内部会过滤数据）
+        # 流式处理（内部会记录选中的基金并过滤数据）
         results = self._streaming_process(processed, data_loader, **kwargs)
         
         # Postprocess
@@ -380,7 +388,7 @@ class BaseBatchSkill(BaseSkill):
         if keep_count is not None:
             results = results[:keep_count]
         
-        # ✅ 再次过滤：只保留最终结果中symbol的数据
+        # ✅ 最终过滤：只保留最终结果中symbol的数据
         final_keep_symbols = {r.get('symbol') for r in results if r.get('symbol')}
         self._all_loaded_data = {
             sym: data for sym, data in self._all_loaded_data.items()
@@ -409,7 +417,6 @@ class BaseBatchSkill(BaseSkill):
         if not items:
             return []
         
-        # 在executor中运行同步执行
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None, self.execute, items, keep_count, **kwargs

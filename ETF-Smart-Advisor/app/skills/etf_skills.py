@@ -270,7 +270,7 @@ Output JSON ONLY (no other text):
             )
             
             # ✅ 打印调试信息
-            print(f"      📝 LLM response length: {len(response)} chars")
+            print(f"      📝 LLM response length: {len(response)} chars.\n{response}")
             
             results = self._parse_response(response)
             if results:
