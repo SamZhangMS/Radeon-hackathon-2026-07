@@ -95,8 +95,9 @@ class MilvusClient:
     def _init_milvus_lite(self):
         """初始化 Milvus Lite - 使用新版 PyMilvus API"""
         try:
-            # uri = f"file:{self.milvus_data_dir}"
-            uri = str(self.milvus_data_dir)
+            uri = f"file:{self.milvus_data_dir}"
+            
+            # uri = str(self.milvus_data_dir)
             self._client = PyMilvusClient(uri=uri, 
                                           timeout=60,
                                             keepalive_options={
