@@ -490,21 +490,22 @@ class LLMClient:
                 if result.get('success'):
                     return result.get('response', '')
                 
-                logger.warning(f"vLLM 失败，降级到 Transformers: {result.get('error')}")
+                # logger.warning(f"vLLM 失败，降级到 Transformers: {result.get('error')}")
             
             # 降级到 Transformers
-            result = self._transformers_generate(
-                messages=messages,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                **kwargs
-            )
+            # 2026/7/31, 临时关闭
+            # result = self._transformers_generate(
+            #     messages=messages,
+            #     max_new_tokens=max_new_tokens,
+            #     temperature=temperature,
+            #     top_p=top_p,
+            #     **kwargs
+            # )
             
-            if result.get('success'):
-                return result.get('response', '')
-            else:
-                return f"生成失败: {result.get('error', '未知错误')}"
+            # if result.get('success'):
+            #     return result.get('response', '')
+            # else:
+            #     return f"生成失败: {result.get('error', '未知错误')}"
                 
         finally:
             # 恢复思考模式设置
