@@ -64,7 +64,7 @@ class ETFDataFetcher:
             df.rename(columns={
                 "money": "amount"
             }, inplace=True)
-        print(f'get_history:{symbol}\n{df}')
+        # print(f'get_history:{symbol}\n{df}')
         return df
     def get_etf_list(self) -> List[str]:
         return self._get_file_list()

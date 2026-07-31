@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import json
 import re
-import time
+import time,threading
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -29,32 +29,112 @@ class ETFDataSkill(BaseSkill):
         )
         self.fetcher = ETFDataFetcher()
         self.cache = {}
+        
+        # 线程池配置
+        self.max_workers = 8  # 最大线程数
+        self.chunk_size = 100  # 每批处理数量
+    
+    # ============================================================
+    # 方法1: 多线程版本 (推荐)
+    # ============================================================
     
     def execute(self, symbols: List[str], days: int = 60) -> Dict[str, pd.DataFrame]:
         """
-        获取ETF数据
+        获取ETF数据 - 多线程版本
         """
+        if not symbols:
+            return {}
+        
+        print(f"📊 开始获取 {len(symbols)} 个ETF数据 (多线程, {self.max_workers} 线程)...")
+        start_time = time.time()
+        
         result = {}
-        for symbol in symbols:
-            try:
-                df = self.fetcher.get_history(symbol, f"{days}d")
-                if not df.empty:
-                    result[symbol] = df
-            except Exception as e:
-                print(f"⚠️ 获取 {symbol} 数据失败: {e}")
+        result_lock = threading.Lock()
+        
+        # 使用线程池
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # 提交所有任务
+            future_to_symbol = {
+                executor.submit(self._get_single_etf_data, symbol, days): symbol
+                for symbol in symbols
+            }
+            
+            completed = 0
+            total = len(symbols)
+            
+            with tqdm(total=len(symbols), desc="读取数据", unit="个") as pbar:
+                for future in as_completed(future_to_symbol):
+                    symbol = future_to_symbol[future]
+                    try:
+                        df = future.result(timeout=30)
+                        if df is not None and not df.empty:
+                            with result_lock:
+                                result[symbol] = df
+                        completed += 1
+                        
+                        # 进度显示
+                        if completed % 100 == 0 or completed == total:
+                            print(f"      进度: {completed}/{total} ({completed/total*100:.1f}%)")
+                            
+                    except Exception as e:
+                        print(f"      ⚠️ 获取 {symbol} 失败: {e}")
+                        completed += 1
+                    pbar.update(1)
+                    
+        elapsed = time.time() - start_time
+        print(f"      ✅ 完成，获取 {len(result)} 个ETF，耗时 {elapsed:.2f}s")
+        
         return result
     
+    def _get_single_etf_data(self, symbol: str, days: int) -> Optional[pd.DataFrame]:
+        """获取单个ETF数据（供多线程调用）"""
+        try:
+            # 检查缓存
+            cache_key = f"{symbol}_{days}"
+            if cache_key in self.cache:
+                return self.cache[cache_key]
+            
+            df = self.fetcher.get_history(symbol, f"{days}d")
+            if not df.empty:
+                self.cache[cache_key] = df
+                return df
+        except Exception as e:
+            print(f"      ⚠️ 获取 {symbol} 数据失败: {e}")
+        
+        return None
+        
     def get_summary(self, df: pd.DataFrame, days: int = 20) -> str:
-        """获取数据摘要"""
+        """获取数据摘要 - 使用to_csv加速"""
+        if df.empty:
+            return ""
+        
+        # 截取最近days天
         df = df.tail(days)
-        parts = []
-        for idx, row in df.iterrows():
-            date_str = idx.strftime('%m-%d') if hasattr(idx, 'strftime') else str(idx)
-            parts.append(
-                f"{date_str} {row['open']:.3f} {row['high']:.3f} "
-                f"{row['low']:.3f} {row['close']:.3f} {row['volume']:.0f}"
-            )
-        return "|".join(parts)
+        
+        # 确保日期为索引
+        if 'date' in df.columns:
+            df = df.set_index('date')
+        
+        # 选择需要的列
+        cols = ['open', 'high', 'low', 'close', 'volume']
+        available_cols = [c for c in cols if c in df.columns]
+        
+        if not available_cols:
+            return ""
+        
+        # ✅ 使用to_csv - 向量化操作，速度最快
+        # 格式: 日期,open,high,low,close,volume
+        csv_str = df[available_cols].round(4).to_csv(
+            header=False,
+            float_format='%.4f',
+            date_format='%Y-%m-%d'
+        )
+        
+        # 将CSV格式转换为管道分隔格式（与原格式保持一致）
+        # 去掉末尾换行，替换分隔符
+        csv_str = csv_str.strip().replace('\n', '|')
+        
+        return csv_str
     
     def get_indicators(self, df: pd.DataFrame) -> Dict:
         """计算技术指标"""
