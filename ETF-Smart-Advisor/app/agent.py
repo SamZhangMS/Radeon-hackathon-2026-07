@@ -170,7 +170,7 @@ class ETFAdvisorAgent:
             self.logger.info(f"   Collection: {stats.get('collection', 'N/A')}")
             self.logger.info(f"   知识条目: {stats.get('total_knowledge', 0)}")
         except Exception as e:
-            self.logger.warning(f"⚠️ Milvus 初始化失败: {e}")
+            self.logger.warning(f"⚠️ ETFAdvisorAgent - __init__, Milvus 初始化失败: {e}")
             self.milvus = None
         
         # 隐私管理器

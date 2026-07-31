@@ -116,7 +116,7 @@ class MilvusClient:
             logger.info("   💡 安装: pip install milvus-lite")
             self._memory_mode = True
         except Exception as e:
-            logger.warning(f"⚠️ Milvus 初始化失败: {e}")
+            logger.warning(f"⚠️ _init_milvus_lite-Milvus 初始化失败: {e}")
             self._memory_mode = True
     
     def _init_collection(self):
