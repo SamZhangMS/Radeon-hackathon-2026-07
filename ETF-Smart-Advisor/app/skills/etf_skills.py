@@ -180,9 +180,9 @@ class ETFAnalyzeSkill(BaseBatchSkill):
         super().__init__(
             name="etf_quick_analyze",
             description="Quick scoring for ETFs for initial screening",
-            batch_size=15,
-            max_workers=4,
-            timeout=120,  # ✅ 增加超时时间
+            batch_size=5, # 15,
+            max_workers=2, # 4,
+            timeout=180,  # ✅ 增加超时时间
             output_tokens=500,
             safety_margin=0.75
         )
