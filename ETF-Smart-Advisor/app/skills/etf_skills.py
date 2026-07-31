@@ -168,11 +168,12 @@ class ETFDataSkill(BaseSkill):
         return csv_str.strip().replace('\n', '|')
 
 
+# app/skills/etf_skills.py - 修复 ETFAnalyzeSkill
+
 class ETFAnalyzeSkill(BaseBatchSkill):
     """
     Skill: ETF Quick Analysis (Stage 1)
     Function: Quick scoring and analysis for ETFs
-    Only provide raw OHLCV data, all indicators calculated by LLM itself
     """
     
     def __init__(self):
@@ -181,7 +182,7 @@ class ETFAnalyzeSkill(BaseBatchSkill):
             description="Quick scoring for ETFs for initial screening",
             batch_size=15,
             max_workers=4,
-            timeout=60,
+            timeout=120,  # ✅ 增加超时时间
             output_tokens=500,
             safety_margin=0.75
         )
@@ -245,24 +246,18 @@ Output JSON:
         
         data_text = "\n".join(batch_data)
         
-        prompt = f"""You are an experienced quantitative analyst. Please analyze the raw OHLCV data of the following {len(batch_data)} ETFs.
+        # ✅ 简化 prompt，减少输出 token 消耗
+        prompt = f"""Analyze the following {len(batch_data)} ETFs' raw OHLCV data.
 
-Data format: Symbol|YYYY-MM-DD|O|H|L|C|V
+Data format: Symbol|Date|O|H|L|C|V
 
 Data:
 {data_text}
 
-Output JSON:
+Output JSON ONLY (no other text):
 {{
-    "scoring_system": {{
-        "dimensions": [
-            {{"name": "Trend", "weight": 0.35}},
-            {{"name": "Momentum", "weight": 0.30}},
-            {{"name": "Technical Signals", "weight": 0.35}}
-        ]
-    }},
     "scores": [
-        {{"symbol": "Symbol", "score": Score, "signal": "buy/hold/sell", "reason": "Reason"}}
+        {{"symbol": "Symbol", "score": 0-100 integer, "signal": "buy/hold/sell", "reason": "short reason"}}
     ]
 }}"""
 
@@ -274,33 +269,89 @@ Output JSON:
                 enable_thinking=False
             )
             
-            return self._parse_response(response)
+            # ✅ 打印调试信息
+            print(f"      📝 LLM response length: {len(response)} chars")
+            
+            results = self._parse_response(response)
+            if results:
+                print(f"      ✅ Parsed {len(results)} results")
+            else:
+                print(f"      ⚠️ No results parsed, response preview: {response[:200]}...")
+            
+            return results
             
         except Exception as e:
             print(f"      ⚠️ LLM analysis failed: {e}")
             return []
     
     def _parse_response(self, response: str) -> List[Dict]:
-        """Parse LLM response"""
-        data = self._extract_json(response)
-        if data:
-            system = data.get('scoring_system', {})
-            if system.get('dimensions'):
-                dims = system['dimensions']
-                print(f"     📋 Scoring system: {len(dims)} dimensions")
-                for d in dims[:3]:
-                    print(f"        - {d.get('name')} ({d.get('weight', 0)})")
-            return data.get('scores', [])
-        return []
+        """Parse LLM response - 增强解析逻辑"""
+        results = []
+        
+        try:
+            # ✅ 方法1: 尝试直接解析 JSON
+            data = self._extract_json(response)
+            if data:
+                scores = data.get('scores', [])
+                if scores:
+                    return scores
+            
+            # ✅ 方法2: 尝试从响应中提取多个 JSON 对象
+            json_pattern = r'\{[^{}]*"symbol"[^{}]*"score"[^{}]*\}'
+            matches = re.findall(json_pattern, response, re.DOTALL)
+            for match in matches:
+                try:
+                    item = json.loads(match)
+                    if 'symbol' in item and 'score' in item:
+                        results.append(item)
+                except:
+                    continue
+            
+            # ✅ 方法3: 尝试解析不完整的 JSON
+            if not results:
+                # 查找所有 symbol 和 score 对
+                symbol_pattern = r'"symbol"\s*:\s*"([^"]+)"'
+                score_pattern = r'"score"\s*:\s*(\d+)'
+                signal_pattern = r'"signal"\s*:\s*"([^"]+)"'
+                
+                symbols = re.findall(symbol_pattern, response)
+                scores = re.findall(score_pattern, response)
+                signals = re.findall(signal_pattern, response)
+                
+                for i in range(min(len(symbols), len(scores))):
+                    results.append({
+                        'symbol': symbols[i],
+                        'score': int(scores[i]) if scores[i].isdigit() else 50,
+                        'signal': signals[i] if i < len(signals) else 'hold',
+                        'reason': 'Parsed from response'
+                    })
+            
+        except Exception as e:
+            print(f"      ⚠️ Parse error: {e}")
+        
+        return results
     
     def _fallback(self, batch: List[Dict], **kwargs) -> List[Dict]:
         """Fallback analysis - simple rules"""
         results = []
         for item in batch:
             symbol = item.get('symbol', '')
-            # 尝试从缓存获取数据
-            data = self.data_loader.load_data(symbol, 30)
+            if not symbol:
+                continue
+            
+            # 尝试从已加载数据获取
+            data = self.get_loaded_data(symbol)
+            if data is None:
+                data = self.data_loader.load_data(symbol, 30)
+            
             if data is None or data.empty:
+                # 没有数据，给默认评分
+                results.append({
+                    'symbol': symbol,
+                    'score': 50,
+                    'signal': 'hold',
+                    'reason': 'No data available'
+                })
                 continue
             
             try:
@@ -325,8 +376,14 @@ Output JSON:
                     'signal': signal,
                     'reason': 'Rule engine fallback scoring'
                 })
-            except:
-                continue
+            except Exception as e:
+                print(f"      ⚠️ Fallback error for {symbol}: {e}")
+                results.append({
+                    'symbol': symbol,
+                    'score': 50,
+                    'signal': 'hold',
+                    'reason': f'Fallback error: {str(e)[:50]}'
+                })
         
         return results
     
@@ -335,6 +392,8 @@ Output JSON:
         if not symbols:
             print("   ⚠️ No symbols to analyze")
             return []
+        
+        print(f"   📊 ETFAnalyzeSkill: processing {len(symbols)} symbols...")
         
         # 设置数据加载参数
         kwargs['data_days'] = 30
@@ -354,10 +413,24 @@ Output JSON:
                 existing_symbols = {r.get('symbol') for r in results}
                 remaining = [s for s in available_symbols if s not in existing_symbols]
                 if remaining:
-                    fallback_items = [{'symbol': s} for s in remaining[:keep_count]]
+                    # 限制补充数量
+                    max_fallback = min(len(remaining), keep_count - len(results))
+                    fallback_items = [{'symbol': s} for s in remaining[:max_fallback]]
                     fallback_results = self._fallback(fallback_items)
                     results.extend(fallback_results)
                     print(f"   ✅ Added {len(fallback_results)} fallback results")
+        
+        # 如果结果仍然太少，从原始符号列表补充
+        if len(results) < self.MIN_KEEP_COUNT:
+            print(f"   ⚠️ Still insufficient ({len(results)}), generating more fallback...")
+            existing_symbols = {r.get('symbol') for r in results}
+            remaining = [s for s in symbols if s not in existing_symbols]
+            if remaining:
+                max_fallback = min(len(remaining), keep_count - len(results))
+                fallback_items = [{'symbol': s} for s in remaining[:max_fallback]]
+                fallback_results = self._fallback(fallback_items)
+                results.extend(fallback_results)
+                print(f"   ✅ Added {len(fallback_results)} more fallback results")
         
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         final_results = results[:keep_count]

@@ -5,7 +5,7 @@ import time
 import re
 import json
 import gc
-from typing import Dict, List, Any, Optional, Callable, Iterator
+from typing import Dict, List, Any, Optional, Callable, Iterator, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from abc import abstractmethod
@@ -19,6 +19,7 @@ class BaseBatchSkill(BaseSkill):
     """
     Batch processing skill base class with memory optimization
     流式处理：边加载数据边生成prompt，达到token限制时立即处理
+    处理完成后只保留选中基金的数据
     """
     
     def __init__(
@@ -72,6 +73,10 @@ class BaseBatchSkill(BaseSkill):
         self._data_cache = {}  # 缓存已加载的数据
         self._cache_lock = threading.Lock()
         self._max_cache_size = 100  # 最大缓存数量
+        
+        # ✅ 存储所有加载的数据（用于后续过滤）
+        self._all_loaded_data = {}
+        self._keep_symbols = set()  # 需要保留的symbol集合
     
     def _count_tokens(self, text: str) -> int:
         """Count tokens in text"""
@@ -113,12 +118,10 @@ class BaseBatchSkill(BaseSkill):
     ) -> List[Dict]:
         """
         流式处理：边加载边生成prompt，达到限制时立即处理
-        
-        Args:
-            items: 待处理的项目列表
-            data_loader: 数据加载函数，接受 item 返回数据
+        处理完成后只保留选中基金的数据
         """
         all_results = []
+        all_loaded_data = {}  # 本地存储所有加载的数据
         
         # 1. 获取基础prompt用于token计算
         base_prompt = self._get_base_prompt()
@@ -129,12 +132,8 @@ class BaseBatchSkill(BaseSkill):
         current_data = {}  # symbol -> data
         current_tokens = base_tokens + self.output_tokens
         
-        # 3. 存储所有已加载的数据（用于后续步骤）
-        all_loaded_data = {}
-        
-        # 4. 分批处理进度条
+        # 3. 分批处理进度条
         total_items = len(items)
-        processed_count = 0
         
         with tqdm(total=total_items, desc="Streaming processing", unit="items") as pbar:
             for item in items:
@@ -157,7 +156,7 @@ class BaseBatchSkill(BaseSkill):
                         if len(self._data_cache) < self._max_cache_size:
                             self._data_cache[symbol] = data
                 
-                # 保存所有加载的数据
+                # 保存所有加载的数据（用于后续过滤）
                 all_loaded_data[symbol] = data
                 
                 # 生成该项的prompt片段
@@ -186,7 +185,6 @@ class BaseBatchSkill(BaseSkill):
                     current_data[symbol] = data
                     current_tokens += item_tokens
                 
-                processed_count += 1
                 pbar.update(1)
             
             # 处理最后一批
@@ -200,13 +198,41 @@ class BaseBatchSkill(BaseSkill):
                         if sym in self._data_cache:
                             del self._data_cache[sym]
         
-        # 保存所有已加载的数据供后续步骤使用
-        self._all_loaded_data = all_loaded_data
+        # ✅ 关键：根据大模型返回结果，只保留选中基金的数据
+        self._all_loaded_data = self._filter_loaded_data(all_loaded_data, all_results)
         
         # 强制垃圾回收
         gc.collect()
         
         return all_results
+    
+    def _filter_loaded_data(self, all_loaded_data: Dict[str, Any], results: List[Dict]) -> Dict[str, Any]:
+        """
+        根据大模型返回结果，只保留选中基金的数据
+        子类可以重写此方法自定义过滤逻辑
+        """
+        if not results:
+            return {}
+        
+        # 从结果中提取所有symbol
+        keep_symbols = set()
+        for r in results:
+            symbol = r.get('symbol')
+            if symbol:
+                keep_symbols.add(symbol)
+        
+        # 只保留选中基金的数据
+        filtered_data = {}
+        for symbol, data in all_loaded_data.items():
+            if symbol in keep_symbols:
+                filtered_data[symbol] = data
+        
+        # 保存选中的symbol集合
+        self._keep_symbols = keep_symbols
+        
+        print(f"   📊 Filtered data: kept {len(filtered_data)} out of {len(all_loaded_data)} items")
+        
+        return filtered_data
     
     def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
         """获取单个项目的prompt片段（子类可重写）"""
@@ -244,13 +270,17 @@ class BaseBatchSkill(BaseSkill):
         if isinstance(data, dict):
             data['symbol'] = symbol
             return data
-        elif isinstance(data, pd.DataFrame):
-            return {
-                'symbol': symbol,
-                'data': data,
-                'full_data': self._get_summary_from_data(data),
-                'summary': self._get_summary_from_data(data, days=20)
-            }
+        try:
+            import pandas as pd
+            if isinstance(data, pd.DataFrame):
+                return {
+                    'symbol': symbol,
+                    'data': data,
+                    'full_data': self._get_summary_from_data(data),
+                    'summary': self._get_summary_from_data(data, days=20)
+                }
+        except:
+            pass
         return {'symbol': symbol, 'data': data}
     
     def _get_summary_from_data(self, data: Any, days: int = 60) -> str:
@@ -267,16 +297,22 @@ class BaseBatchSkill(BaseSkill):
         """清除数据缓存"""
         with self._cache_lock:
             self._data_cache.clear()
+        self._all_loaded_data = {}
+        self._keep_symbols = set()
         gc.collect()
         print("   ✅ Data cache cleared")
     
     def get_loaded_data(self, symbol: str) -> Optional[Any]:
-        """获取已加载的数据"""
+        """获取已加载的数据（只返回保留的数据）"""
         return self._all_loaded_data.get(symbol) if hasattr(self, '_all_loaded_data') else None
     
     def get_all_loaded_data(self) -> Dict[str, Any]:
-        """获取所有已加载的数据"""
+        """获取所有已加载的数据（只返回保留的数据）"""
         return getattr(self, '_all_loaded_data', {})
+    
+    def get_keep_symbols(self) -> Set[str]:
+        """获取保留的symbol集合"""
+        return getattr(self, '_keep_symbols', set())
     
     # ============================================================
     # Abstract methods (subclasses must implement)
@@ -319,6 +355,7 @@ class BaseBatchSkill(BaseSkill):
     def execute(self, items: List[Any], keep_count: int = None, **kwargs) -> List[Dict]:
         """
         Batch execution with streaming processing
+        执行完成后，只保留大模型选中基金的数据
         """
         if not items:
             return []
@@ -333,7 +370,7 @@ class BaseBatchSkill(BaseSkill):
         def data_loader(symbol: str):
             return self._load_item_data(symbol, **kwargs)
         
-        # 流式处理
+        # 流式处理（内部会过滤数据）
         results = self._streaming_process(processed, data_loader, **kwargs)
         
         # Postprocess
@@ -343,8 +380,17 @@ class BaseBatchSkill(BaseSkill):
         if keep_count is not None:
             results = results[:keep_count]
         
+        # ✅ 再次过滤：只保留最终结果中symbol的数据
+        final_keep_symbols = {r.get('symbol') for r in results if r.get('symbol')}
+        self._all_loaded_data = {
+            sym: data for sym, data in self._all_loaded_data.items()
+            if sym in final_keep_symbols
+        }
+        self._keep_symbols = final_keep_symbols
+        
         elapsed = time.time() - start_time
         print(f"      ✅ Completed, time used {elapsed:.2f}s, retained {len(results)} items")
+        print(f"      📊 Final data cache size: {len(self._all_loaded_data)} items")
         
         return results
     
