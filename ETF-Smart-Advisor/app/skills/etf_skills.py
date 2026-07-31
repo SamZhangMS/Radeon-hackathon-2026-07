@@ -122,7 +122,7 @@ class ETFAnalyzeSkill(BaseBatchSkill):
         super().__init__(
             name="etf_quick_analyze",
             description="对ETF进行快速评分，用于初步筛选",
-            batch_size=15,
+            batch_size=30,
             max_workers=4,
             timeout=60,
             output_tokens=500
@@ -294,7 +294,7 @@ class ETFRankingSkill(BaseBatchSkill):
         super().__init__(
             name="etf_ranking",
             description="对候选ETF进行精细比较和排名",
-            batch_size=20,
+            batch_size=30,
             max_workers=4,
             timeout=60,
             output_tokens=400
