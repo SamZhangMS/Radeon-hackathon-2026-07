@@ -126,62 +126,10 @@ class ETFAnalyzeSkill(BaseBatchSkill):
             max_workers=4,
             timeout=60,
             output_tokens=500,
-            max_context_tokens=30000  # Safe threshold for DeepSeek-R1-Distill-Qwen-1.5B
+            safety_margin=0.75
         )
         self.data_skill = ETFDataSkill()
         self.MIN_KEEP_COUNT = 50
-        self._token_counter = None
-        
-        # Initialize tokenizer
-        try:
-            import tiktoken
-            self._token_counter = tiktoken.get_encoding("cl100k_base")
-        except:
-            self._token_counter = None
-    
-    def _count_tokens(self, text: str) -> int:
-        """Count tokens in text"""
-        if self._token_counter:
-            return len(self._token_counter.encode(text))
-        # Fallback: rough estimate (~3 chars per token)
-        return len(text) // 3
-    
-    def _build_batch_dynamically(self, items: List[str], base_prompt: str, **kwargs) -> List[List[str]]:
-        """
-        Dynamically build batches based on token count
-        Each ETF data is loaded and token count is checked before adding to batch
-        """
-        batches = []
-        current_batch = []
-        current_tokens = self._count_tokens(base_prompt) + self.output_tokens
-        
-        for symbol in items:
-            # Load data for this symbol
-            df = self.data_skill._get_single(symbol, days=30)
-            if df is None or df.empty:
-                continue
-            
-            # Generate summary and calculate token count
-            summary = self.data_skill.get_summary(df, days=20)
-            item_str = f"{symbol}|{summary}"
-            item_tokens = self._count_tokens(item_str)
-            
-            # Check if adding this item exceeds limit
-            if current_tokens + item_tokens > self.max_context_tokens:
-                # Start new batch
-                if current_batch:
-                    batches.append(current_batch)
-                current_batch = [symbol]
-                current_tokens = self._count_tokens(base_prompt) + self.output_tokens + item_tokens
-            else:
-                current_batch.append(symbol)
-                current_tokens += item_tokens
-        
-        # Add last batch
-        if current_batch:
-            batches.append(current_batch)
-        
-        return batches
     
     def _preprocess(self, items: List[str], **kwargs) -> List[str]:
         return [s for s in items if s]
@@ -351,65 +299,10 @@ class ETFRankingSkill(BaseBatchSkill):
             max_workers=4,
             timeout=60,
             output_tokens=400,
-            max_context_tokens=30000  # Safe threshold
+            safety_margin=0.75
         )
         self.data_skill = ETFDataSkill()
         self.MIN_KEEP_COUNT = 10
-        self._token_counter = None
-        
-        try:
-            import tiktoken
-            self._token_counter = tiktoken.get_encoding("cl100k_base")
-        except:
-            self._token_counter = None
-    
-    def _count_tokens(self, text: str) -> int:
-        """Count tokens in text"""
-        if self._token_counter:
-            return len(self._token_counter.encode(text))
-        return len(text) // 3
-    
-    def _build_batch_dynamically(self, items: List[Dict], base_prompt: str, **kwargs) -> List[List[Dict]]:
-        """
-        Dynamically build batches based on token count
-        Each ETF data is loaded and token count is checked before adding to batch
-        """
-        batches = []
-        current_batch = []
-        current_tokens = self._count_tokens(base_prompt) + self.output_tokens
-        
-        for item in items:
-            symbol = item.get('symbol')
-            if not symbol:
-                continue
-            
-            # Get full data
-            df = self.data_skill._get_single(symbol, days=60)
-            if df is None or df.empty:
-                full_data = ''
-            else:
-                full_data = self.data_skill.get_summary(df, days=60)
-            
-            # Build item string and count tokens
-            score = item.get('score', 0)
-            signal = item.get('signal', 'hold')
-            item_str = f"{symbol}|Init:{score}|Signal:{signal}|{full_data}"
-            item_tokens = self._count_tokens(item_str)
-            
-            # Check if adding this item exceeds limit
-            if current_tokens + item_tokens > self.max_context_tokens:
-                if current_batch:
-                    batches.append(current_batch)
-                current_batch = [item]
-                current_tokens = self._count_tokens(base_prompt) + self.output_tokens + item_tokens
-            else:
-                current_batch.append(item)
-                current_tokens += item_tokens
-        
-        if current_batch:
-            batches.append(current_batch)
-        
-        return batches
     
     def _preprocess(self, candidates: List[Dict], **kwargs) -> List[Dict]:
         """Enrich with full data for ranking"""
@@ -540,7 +433,7 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
             max_workers=1,
             timeout=120,
             output_tokens=600,
-            max_context_tokens=30000
+            safety_margin=0.75
         )
         self.data_skill = ETFDataSkill()
         self.MIN_KEEP_COUNT = 1
