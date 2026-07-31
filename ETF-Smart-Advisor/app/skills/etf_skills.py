@@ -262,6 +262,7 @@ Output JSON ONLY (no other text):
 }}"""
 
         try:
+            print(f'ETFAnalyzeSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
@@ -269,8 +270,9 @@ Output JSON ONLY (no other text):
                 enable_thinking=False
             )
             
+            print(f'ETFAnalyzeSkill._process_batch\n{response}')
             # ✅ 打印调试信息
-            print(f"      📝 LLM response length: {len(response)} chars.\n{response}")
+            # print(f"      📝 LLM response length: {len(response)} chars.\n{response}")
             
             results = self._parse_response(response)
             if results:
@@ -533,6 +535,7 @@ Output JSON:
 }}"""
 
         try:
+            print(f'ETFRankingSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
@@ -540,6 +543,7 @@ Output JSON:
                 enable_thinking=False
             )
             
+            print(f'ETFRankingSkill._process_batch\n{response}')
             data = self._extract_json(response)
             return data.get('rankings', []) if data else []
                 
@@ -701,6 +705,7 @@ Format: YYYY-MM-DD|O|H|L|C|V
 }}"""
 
         try:
+            print(f'ETFDeepAnalyzeSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
@@ -708,6 +713,7 @@ Format: YYYY-MM-DD|O|H|L|C|V
                 enable_thinking=False
             )
             
+            print(f'ETFDeepAnalyzeSkill._process_batch\n{response}')
             data = self._extract_json(response)
             if data:
                 data['symbol'] = symbol
