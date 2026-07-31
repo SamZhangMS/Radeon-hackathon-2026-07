@@ -114,7 +114,7 @@ class ETFAnalyzeSkill(BaseSkill):
         )
         self.llm = get_llm_client()
         self.data_skill = ETFDataSkill()
-        self.batch_size = 50
+        self.batch_size = 20 #50
     
     def execute(self, symbols: List[str], keep_count: int = 700) -> List[Dict]:
         """
@@ -259,7 +259,7 @@ class ETFRankingSkill(BaseSkill):
         )
         self.llm = get_llm_client()
         self.data_skill = ETFDataSkill()
-        self.batch_size = 30
+        self.batch_size = 20 # 30
     
     def execute(self, candidates: List[Dict], keep_count: int = 100) -> List[Dict]:
         """

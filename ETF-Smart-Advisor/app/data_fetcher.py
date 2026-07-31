@@ -67,7 +67,12 @@ class ETFDataFetcher:
         print(f'get_history:{symbol}\n{df}')
         return df
     def get_etf_list(self) -> List[str]:
-        data_path = Path(parquet_path+'/etf')
+        return self._get_file_list()
+    
+    def get_stock_list(self) -> List[str]:
+        return self._get_file_list('stock')
+    def _get_file_list(self,sub_folder='etf')-> List[str]:
+        data_path = Path(parquet_path+'/'+sub_folder)
         if not data_path.exists():
             return []
         
@@ -76,3 +81,4 @@ class ETFDataFetcher:
             for p in data_path.rglob("*") 
             if p.is_file() and p.suffix in ['.txt', '.csv', '.parquet']
         ]
+        
