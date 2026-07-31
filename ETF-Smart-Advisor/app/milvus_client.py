@@ -97,7 +97,13 @@ class MilvusClient:
         try:
             # uri = f"file:{self.milvus_data_dir}"
             uri = str(self.milvus_data_dir)
-            self._client = PyMilvusClient(uri=uri)
+            self._client = PyMilvusClient(uri=uri, 
+                                          timeout=60,
+                                            keepalive_options={
+                                                'keepalive_time_ms': 60000,
+                                                'keepalive_timeout_ms': 20000,
+                                                'keepalive_permit_without_calls': True,
+                                            })
             logger.info(f"✅ Milvus Lite 已连接: {self.milvus_data_dir}")
             
             # 初始化 Collection
