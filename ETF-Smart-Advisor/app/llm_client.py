@@ -16,7 +16,7 @@ import httpx
 import torch
 import logging
 from typing import Optional, List, Dict, Any, Union
-from transformers import AutoModelForCausalLM, AutoTokenizer,BitsAndBytesConfig,AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, AutoConfig
 import bitsandbytes
 import requests
 
@@ -33,32 +33,6 @@ class LLMClient:
     - 优先使用 vLLM（高性能推理）
     - 降级使用 Transformers（直接加载）
     - 完全兼容 qwen_model.py 的接口
-    
-    使用方式：
-        llm = get_llm_client()
-        
-        # 方式1：生成回复
-        response = llm.generate_response(
-            messages=[{"role": "user", "content": "你好"}],
-            max_new_tokens=512
-        )
-        
-        # 方式2：聊天
-        result = llm.chat(
-            user_message="你好",
-            system_prompt="你是专业的ETF投资顾问"
-        )
-        
-        # 方式3：带系统提示生成
-        response = llm.generate_with_system_prompt(
-            user_message="分析510300",
-            system_prompt="你是专业的ETF投资顾问"
-        )
-    
-    配置：
-        - use_vllm: 是否启用 vLLM（默认 True）
-        - vllm_host: vLLM 服务地址
-        - vllm_port: vLLM 服务端口
     """
     
     _instance = None
@@ -76,7 +50,10 @@ class LLMClient:
         
         self._initialized = True
         
-        # 从配置读取
+        # ✅ 从配置读取 max_model_len
+        self.max_model_len = LLM_API_CONFIG.get("max_model_len", 65536)
+        
+        # vLLM 配置
         vllm_config = LLM_API_CONFIG.get("vllm", {})
         self.model_path = LLM_API_CONFIG.get("model_path")
         self.enable_thinking = LLM_API_CONFIG.get("enable_thinking", False)
@@ -87,18 +64,20 @@ class LLMClient:
         self.vllm_port = vllm_config.get("port", 8000)
         self.vllm_base_url = f"http://{self.vllm_host}:{self.vllm_port}"
         self.vllm_model_name = vllm_config.get("served_model_name", "qwen-model")
-        self.vllm_timeout = 60.0
+        self.vllm_timeout = 120.0  # ✅ 增加超时时间
         
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
         # 状态
         self._vllm_available = None
         self._transformers_loaded = False
+        self._max_seq_length = self.max_model_len
         
         logger.info(f"✅ LLM 客户端初始化完成")
         logger.info(f"   vLLM: {'启用' if self.use_vllm else '禁用'}")
         logger.info(f"   vLLM 端点: {self.vllm_base_url}")
         logger.info(f"   模型路径: {self.model_path}")
+        logger.info(f"   最大上下文长度: {self.max_model_len}")
         logger.info(f"   目标设备: {self.device}")
         logger.info(f"   思考模式: {'开启' if self.enable_thinking else '关闭'}")
     
@@ -107,13 +86,7 @@ class LLMClient:
     # ============================================================
     
     async def check_vllm_health(self) -> bool:
-        """
-        检查 vLLM 服务是否可用
-        
-        Returns:
-            True: vLLM 服务正常
-            False: vLLM 服务不可用
-        """
+        """检查 vLLM 服务是否可用"""
         if self._vllm_available is not None:
             return self._vllm_available
         
@@ -147,23 +120,7 @@ class LLMClient:
         top_p: float = 0.9,
         **kwargs
     ) -> Dict[str, Any]:
-        """
-        使用 vLLM 生成响应（异步）
-        
-        Args:
-            messages: 消息列表 [{"role": "user", "content": "..."}]
-            max_tokens: 最大生成 token 数
-            temperature: 温度参数
-            top_p: top_p 采样参数
-        
-        Returns:
-            {
-                "success": bool,
-                "response": str,
-                "usage": dict,
-                "model": str
-            }
-        """
+        """使用 vLLM 生成响应（异步）"""
         try:
             async with httpx.AsyncClient(timeout=self.vllm_timeout) as client:
                 response = await client.post(
@@ -171,7 +128,7 @@ class LLMClient:
                     json={
                         "model": self.vllm_model_name,
                         "messages": messages,
-                        "max_tokens": max_tokens,
+                        "max_tokens": min(max_tokens, self.max_model_len // 10),  # ✅ 确保不超限
                         "temperature": temperature,
                         "top_p": top_p,
                         "stream": False,
@@ -215,14 +172,11 @@ class LLMClient:
                 "backend": "vllm"
             }
     
-        
     def _get_model_max_length(self) -> int:
         """获取模型最大序列长度"""
         try:
-
-            
             # 从配置读取
-            config_max_len = LLM_API_CONFIG.get("max_model_len", 4096)
+            config_max_len = self.max_model_len
             
             # 尝试从模型配置获取
             try:
@@ -247,19 +201,14 @@ class LLMClient:
                 
         except Exception as e:
             logger.warning(f"   获取模型最大长度失败: {e}")
-            return 4096
-        
+            return self.max_model_len
+    
     # ============================================================
     # Transformers 相关方法（降级方案）
     # ============================================================
     
     def _load_transformers_model(self):
-        """
-        加载 Transformers 模型（单例）
-        
-        Returns:
-            (model, tokenizer): 模型和分词器实例
-        """
+        """加载 Transformers 模型（单例）"""
         if self._model is not None:
             return self._model, self._tokenizer
         
@@ -290,7 +239,7 @@ class LLMClient:
                 self.model_path,
                 trust_remote_code=True,
                 dtype=torch.bfloat16,
-                device_map="cuda:0", # "auto",
+                device_map="cuda:0",
                 quantization_config=bnb_config,
                 low_cpu_mem_usage=True,
             )
@@ -300,25 +249,6 @@ class LLMClient:
             
             if hasattr(self._model, 'device'):
                 logger.info(f"   模型主设备: {self._model.device}")
-            
-            # 检查是否有参数在 CPU 上
-            cpu_params = 0
-            gpu_params = 0
-            meta_params = 0
-            for name, param in self._model.named_parameters():
-                if param.device.type == 'cpu':
-                    cpu_params += param.numel()
-                elif param.device.type == 'cuda':
-                    gpu_params += param.numel()
-                elif param.device.type == 'meta':
-                    meta_params += param.numel()
-            
-            logger.info(f"   📊 参数分布:")
-            logger.info(f"      GPU: {gpu_params/1e6:.2f}M")
-            if cpu_params > 0:
-                logger.warning(f"      CPU: {cpu_params/1e6:.2f}M ⚠️ 部分参数在 CPU 上")
-            if meta_params > 0:
-                logger.warning(f"      Meta: {meta_params/1e6:.2f}M ⚠️ 未分配")
             
             total_params = sum(p.numel() for p in self._model.parameters())
             logger.info(f"   总参数: {total_params:,}")
@@ -337,22 +267,7 @@ class LLMClient:
         top_p: float = 0.9,
         **kwargs
     ) -> Dict[str, Any]:
-        """
-        使用 Transformers 生成（降级方案）
-        
-        Args:
-            messages: 消息列表
-            max_new_tokens: 最大生成 token 数
-            temperature: 温度参数
-            top_p: top_p 采样参数
-        
-        Returns:
-            {
-                "success": bool,
-                "response": str,
-                "backend": str
-            }
-        """
+        """使用 Transformers 生成（降级方案）"""
         try:
             model, tokenizer = self._load_transformers_model()
             
@@ -364,28 +279,31 @@ class LLMClient:
                 enable_thinking=self.enable_thinking
             )
             
-            max_total_length = getattr(self, '_max_seq_length', 4096)
+            max_total_length = getattr(self, '_max_seq_length', self.max_model_len)
+            
+            # ✅ 确保不超过最大长度
+            safe_max_tokens = min(max_new_tokens, max_total_length // 4)
             
             # Tokenize
             inputs = tokenizer(
                 text, 
                 return_tensors="pt",
                 truncation=True,
-                max_length=max_total_length - max_new_tokens  # 预留生成空间
+                max_length=max_total_length - safe_max_tokens
             ).to(model.device)
                         
             # 生成
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=min(max_new_tokens, max_total_length - inputs['input_ids'].shape[1]),
+                    max_new_tokens=safe_max_tokens,
                     temperature=temperature,
                     top_p=top_p,
                     do_sample=temperature > 0,
                     pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
                     use_cache=True,
-                    num_beams=1,  # 使用贪婪解码，减少显存使用
+                    num_beams=1,
                     **kwargs
                 )
             
@@ -428,16 +346,6 @@ class LLMClient:
         生成回复 - 统一接口
         
         优先使用 vLLM，失败时降级到 Transformers
-        
-        Args:
-            messages: 消息列表 [{"role": "user", "content": "..."}]
-            max_new_tokens: 最大生成 token 数
-            temperature: 温度参数
-            top_p: top_p 采样参数
-            enable_thinking: 是否启用思考模式（None 则使用配置默认值）
-        
-        Returns:
-            str: 生成的回复文本
         """
         # 覆盖思考模式设置
         if enable_thinking is not None:
@@ -445,21 +353,21 @@ class LLMClient:
             self.enable_thinking = enable_thinking
         
         try:
-            max_new_tokens = min(max_new_tokens, 512)
+            # ✅ 确保不超过最大长度
+            safe_max_tokens = min(max_new_tokens, self.max_model_len // 4)
+            
             # 尝试 vLLM
             if self.use_vllm:
-                # 同步调用异步方法
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
-                        # 如果已在事件循环中，使用 run_in_executor
                         import concurrent.futures
                         with concurrent.futures.ThreadPoolExecutor() as executor:
                             future = executor.submit(
                                 asyncio.run,
                                 self._vllm_generate(
                                     messages=messages,
-                                    max_tokens=max_new_tokens,
+                                    max_tokens=safe_max_tokens,
                                     temperature=temperature,
                                     top_p=top_p,
                                     **kwargs
@@ -469,16 +377,15 @@ class LLMClient:
                     else:
                         result = asyncio.run(self._vllm_generate(
                             messages=messages,
-                            max_tokens=max_new_tokens,
+                            max_tokens=safe_max_tokens,
                             temperature=temperature,
                             top_p=top_p,
                             **kwargs
                         ))
                 except RuntimeError:
-                    # 没有事件循环，创建新的
                     result = asyncio.run(self._vllm_generate(
                         messages=messages,
-                        max_tokens=max_new_tokens,
+                        max_tokens=safe_max_tokens,
                         temperature=temperature,
                         top_p=top_p,
                         **kwargs
@@ -490,25 +397,23 @@ class LLMClient:
                 if result.get('success'):
                     return result.get('response', '')
                 
-                # logger.warning(f"vLLM 失败，降级到 Transformers: {result.get('error')}")
+                logger.warning(f"vLLM 失败，降级到 Transformers: {result.get('error')}")
             
-            # 降级到 Transformers
-            # 2026/7/31, 临时关闭
-            # result = self._transformers_generate(
-            #     messages=messages,
-            #     max_new_tokens=max_new_tokens,
-            #     temperature=temperature,
-            #     top_p=top_p,
-            #     **kwargs
-            # )
+            # ✅ 降级到 Transformers（已启用）
+            result = self._transformers_generate(
+                messages=messages,
+                max_new_tokens=safe_max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                **kwargs
+            )
             
-            # if result.get('success'):
-            #     return result.get('response', '')
-            # else:
-            #     return f"生成失败: {result.get('error', '未知错误')}"
+            if result.get('success'):
+                return result.get('response', '')
+            else:
+                return f"生成失败: {result.get('error', '未知错误')}"
                 
         finally:
-            # 恢复思考模式设置
             if enable_thinking is not None:
                 self.enable_thinking = original_thinking
     
@@ -522,33 +427,12 @@ class LLMClient:
         top_p: float = 0.9,
         **kwargs
     ) -> Dict[str, Any]:
-        """
-        聊天接口 - 兼容 qwen_model.py 的 chat 方法
-        
-        Args:
-            user_message: 用户消息
-            system_prompt: 系统提示（可选）
-            history: 历史对话（可选）
-            max_new_tokens: 最大生成 token 数
-            temperature: 温度参数
-            top_p: top_p 采样参数
-        
-        Returns:
-            {
-                "success": bool,
-                "response": str,
-                "messages": List[Dict]  # 完整的消息列表
-            }
-        """
-        # 构建消息列表
+        """聊天接口"""
         messages = []
-        
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        
         if history:
             messages.extend(history)
-        
         messages.append({"role": "user", "content": user_message})
         
         try:
@@ -583,24 +467,10 @@ class LLMClient:
         top_p: float = 0.9,
         **kwargs
     ) -> str:
-        """
-        带系统提示的生成 - 兼容 qwen_model.py
-        
-        Args:
-            user_message: 用户消息
-            system_prompt: 系统提示（可选）
-            max_new_tokens: 最大生成 token 数
-            temperature: 温度参数
-            top_p: top_p 采样参数
-        
-        Returns:
-            str: 生成的回复文本
-        """
+        """带系统提示的生成"""
         messages = []
-        
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
-        
         messages.append({"role": "user", "content": user_message})
         
         return self.generate_response(
@@ -616,19 +486,7 @@ class LLMClient:
     # ============================================================
     
     def get_model_status(self) -> Dict[str, Any]:
-        """
-        获取模型状态
-        
-        Returns:
-            {
-                "vllm_available": bool,
-                "transformers_loaded": bool,
-                "use_vllm": bool,
-                "model_path": str,
-                "device": str
-            }
-        """
-        # 检查 vLLM 状态（同步方式）
+        """获取模型状态"""
         vllm_available = False
         if self.use_vllm:
             try:
@@ -642,11 +500,11 @@ class LLMClient:
             "transformers_loaded": self._transformers_loaded,
             "use_vllm": self.use_vllm,
             "model_path": self.model_path,
+            "max_model_len": self.max_model_len,
             "enable_thinking": self.enable_thinking,
             "vllm_endpoint": self.vllm_base_url if self.use_vllm else None,
         }
         
-        # 如果 Transformers 已加载，添加设备信息
         if self._model is not None:
             status["device"] = str(self._model.device)
             status["device_type"] = "cuda" if torch.cuda.is_available() else "cpu"
@@ -654,12 +512,7 @@ class LLMClient:
         return status
     
     def is_available(self) -> bool:
-        """
-        检查 LLM 是否可用
-        
-        Returns:
-            bool: 至少有一种推理方式可用
-        """
+        """检查 LLM 是否可用"""
         if self.use_vllm:
             try:
                 vllm_ok = asyncio.run(self.check_vllm_health())
@@ -668,7 +521,6 @@ class LLMClient:
             except:
                 pass
         
-        # 检查 Transformers 是否可加载
         try:
             self._load_transformers_model()
             return True
@@ -680,28 +532,15 @@ class LLMClient:
     # ============================================================
     
     def set_vllm_enabled(self, enabled: bool):
-        """
-        启用/禁用 vLLM
-        
-        Args:
-            enabled: True 启用 vLLM，False 禁用
-        """
         self.use_vllm = enabled
-        self._vllm_available = None  # 重置缓存
+        self._vllm_available = None
         logger.info(f"vLLM 已{'启用' if enabled else '禁用'}")
     
     def set_vllm_endpoint(self, host: str, port: int):
-        """
-        设置 vLLM 端点
-        
-        Args:
-            host: vLLM 服务地址
-            port: vLLM 服务端口
-        """
         self.vllm_host = host
         self.vllm_port = port
         self.vllm_base_url = f"http://{host}:{port}"
-        self._vllm_available = None  # 重置缓存
+        self._vllm_available = None
         logger.info(f"vLLM 端点已更新: {self.vllm_base_url}")
     
     # ============================================================
@@ -716,18 +555,7 @@ class LLMClient:
         top_p: float = 0.9,
         **kwargs
     ) -> str:
-        """
-        简化的生成方法 - 直接输入文本
-        
-        Args:
-            prompt: 提示文本
-            max_new_tokens: 最大生成 token 数
-            temperature: 温度参数
-            top_p: top_p 采样参数
-        
-        Returns:
-            str: 生成的回复文本
-        """
+        """简化的生成方法"""
         return self.generate_response(
             messages=[{"role": "user", "content": prompt}],
             max_new_tokens=max_new_tokens,
@@ -743,17 +571,7 @@ class LLMClient:
         max_new_tokens: int = 512,
         **kwargs
     ) -> str:
-        """
-        带上下文的生成
-        
-        Args:
-            context: 上下文信息
-            question: 问题
-            max_new_tokens: 最大生成 token 数
-        
-        Returns:
-            str: 生成的回复文本
-        """
+        """带上下文的生成"""
         prompt = f"""基于以下信息回答问题：
 
 上下文:
@@ -771,31 +589,16 @@ class LLMClient:
 # ============================================================
 
 def get_llm_client() -> LLMClient:
-    """
-    获取 LLM 客户端单例
-    
-    Returns:
-        LLMClient: 全局唯一的 LLM 客户端实例
-    """
+    """获取 LLM 客户端单例"""
     return LLMClient()
 
 
-# ============================================================
-# 兼容旧代码的别名（平滑过渡）
-# ============================================================
-
-# 兼容 qwen_model.py 的接口
+# 兼容旧代码
 get_qwen_model = get_llm_client
 QwenModel = LLMClient
-
-# 兼容 vllm_client.py 的接口
 get_vllm_client = get_llm_client
 VLLMClient = LLMClient
 
-
-# ============================================================
-# 导出列表
-# ============================================================
 
 __all__ = [
     'LLMClient',

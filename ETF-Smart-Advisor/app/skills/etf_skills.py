@@ -1,6 +1,6 @@
 # app/skills/etf_skills.py
 """
-ETF相关技能实现
+ETF related skills implementation
 """
 
 import pandas as pd
@@ -21,25 +21,25 @@ from ..llm_client import get_llm_client
 
 class ETFDataSkill(BaseSkill):
     """
-    技能: 获取ETF数据
-    功能: 获取单只或多只ETF的历史数据
+    Skill: ETF Data Fetcher
+    Function: Get historical data for single or multiple ETFs
     """
     
     def __init__(self):
         super().__init__(
             name="etf_data_fetcher",
-            description="获取ETF历史数据，支持单只和批量"
+            description="Get ETF historical data, supports single and batch"
         )
         self.fetcher = ETFDataFetcher()
         self.cache = {}
         self.max_workers = 8
     
     def execute(self, symbols: List[str], days: int = 60) -> Dict[str, pd.DataFrame]:
-        """获取ETF数据 - 多线程版本"""
+        """Get ETF data - multi-threaded version"""
         if not symbols:
             return {}
         
-        print(f"📊 开始获取 {len(symbols)} 个ETF数据 ({self.max_workers} 线程)...")
+        print(f"📊 Start loading data of {len(symbols)} stocks ({self.max_workers} threads)...")
         start_time = time.time()
         
         result = {}
@@ -51,7 +51,7 @@ class ETFDataSkill(BaseSkill):
                 for symbol in symbols
             }
             
-            with tqdm(total=len(symbols), desc="读取数据", unit="个") as pbar:
+            with tqdm(total=len(symbols), desc="Loading data", unit="stocks") as pbar:
                 for future in as_completed(future_to_symbol):
                     symbol = future_to_symbol[future]
                     try:
@@ -60,16 +60,16 @@ class ETFDataSkill(BaseSkill):
                             with result_lock:
                                 result[symbol] = df
                     except Exception as e:
-                        print(f"      ⚠️ 获取 {symbol} 失败: {e}")
+                        print(f"      ⚠️ Failed to load data of {symbol}: {e}")
                     pbar.update(1)
                     
         elapsed = time.time() - start_time
-        print(f"      ✅ 完成，获取 {len(result)} 个ETF，耗时 {elapsed:.2f}s")
+        print(f"      ✅ Completed, loaded {len(result)} stocks, time used {elapsed:.2f}s")
         
         return result
     
     def _get_single(self, symbol: str, days: int) -> Optional[pd.DataFrame]:
-        """获取单个ETF数据"""
+        """Get single ETF data"""
         try:
             cache_key = f"{symbol}_{days}"
             if cache_key in self.cache:
@@ -80,14 +80,14 @@ class ETFDataSkill(BaseSkill):
                 self.cache[cache_key] = df
                 return df
         except Exception as e:
-            print(f"      ⚠️ 获取 {symbol} 失败: {e}")
+            print(f"      ⚠️ Failed to load data of {symbol}: {e}")
         return None
     
     def get_summary(self, df: pd.DataFrame, days: int = 20) -> str:
         """
-        获取数据摘要 - 只包含原始OHLCV
-        格式: 日期|O|H|L|C|V
-        使用完整日期格式YYYY-MM-DD确保跨年不混淆
+        Get data summary - only raw OHLCV data
+        Format: Date|O|H|L|C|V
+        Use full date format YYYY-MM-DD to avoid cross-year confusion
         """
         if df.empty:
             return ""
@@ -113,37 +113,90 @@ class ETFDataSkill(BaseSkill):
 
 class ETFAnalyzeSkill(BaseBatchSkill):
     """
-    技能: ETF快速分析
-    功能: 对ETF进行快速评分和分析（阶段1）
-    只提供原始OHLCV数据，所有指标由大模型自己计算
+    Skill: ETF Quick Analysis
+    Function: Quick scoring and analysis for ETFs (Stage 1)
+    Only provide raw OHLCV data, all indicators calculated by LLM itself
     """
     
     def __init__(self):
         super().__init__(
             name="etf_quick_analyze",
-            description="对ETF进行快速评分，用于初步筛选",
+            description="Quick scoring for ETFs for initial screening",
             batch_size=15,
             max_workers=4,
             timeout=60,
-            output_tokens=500
+            output_tokens=500,
+            max_context_tokens=30000  # Safe threshold for DeepSeek-R1-Distill-Qwen-1.5B
         )
         self.data_skill = ETFDataSkill()
-        self.MIN_KEEP_COUNT = 50  # 最低保留数量
+        self.MIN_KEEP_COUNT = 50
+        self._token_counter = None
+        
+        # Initialize tokenizer
+        try:
+            import tiktoken
+            self._token_counter = tiktoken.get_encoding("cl100k_base")
+        except:
+            self._token_counter = None
+    
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens in text"""
+        if self._token_counter:
+            return len(self._token_counter.encode(text))
+        # Fallback: rough estimate (~3 chars per token)
+        return len(text) // 3
+    
+    def _build_batch_dynamically(self, items: List[str], base_prompt: str, **kwargs) -> List[List[str]]:
+        """
+        Dynamically build batches based on token count
+        Each ETF data is loaded and token count is checked before adding to batch
+        """
+        batches = []
+        current_batch = []
+        current_tokens = self._count_tokens(base_prompt) + self.output_tokens
+        
+        for symbol in items:
+            # Load data for this symbol
+            df = self.data_skill._get_single(symbol, days=30)
+            if df is None or df.empty:
+                continue
+            
+            # Generate summary and calculate token count
+            summary = self.data_skill.get_summary(df, days=20)
+            item_str = f"{symbol}|{summary}"
+            item_tokens = self._count_tokens(item_str)
+            
+            # Check if adding this item exceeds limit
+            if current_tokens + item_tokens > self.max_context_tokens:
+                # Start new batch
+                if current_batch:
+                    batches.append(current_batch)
+                current_batch = [symbol]
+                current_tokens = self._count_tokens(base_prompt) + self.output_tokens + item_tokens
+            else:
+                current_batch.append(symbol)
+                current_tokens += item_tokens
+        
+        # Add last batch
+        if current_batch:
+            batches.append(current_batch)
+        
+        return batches
     
     def _preprocess(self, items: List[str], **kwargs) -> List[str]:
         return [s for s in items if s]
     
     def _process_batch(self, batch: List[str], **kwargs) -> List[Dict]:
-        """分析一批ETF - 只提供原始OHLCV数据"""
+        """Analyze a batch of ETFs - only provide raw OHLCV data"""
         if not batch:
             return []
         
-        # 获取原始数据
+        # Get raw data
         data = self.data_skill.execute(batch, days=30)
         if not data:
             return []
         
-        # 构建批次数据 - 只传原始OHLCV
+        # Build batch data - only raw OHLCV
         batch_data = []
         for symbol, df in data.items():
             summary = self.data_skill.get_summary(df, days=20)
@@ -151,35 +204,35 @@ class ETFAnalyzeSkill(BaseBatchSkill):
         
         data_text = "\n".join(batch_data)
         
-        prompt = f"""你是有经验的量化分析师。请分析以下 {len(batch_data)} 只ETF的原始OHLCV数据。
+        prompt = f"""You are an experienced quantitative analyst. Please analyze the raw OHLCV data of the following {len(batch_data)} ETFs.
 
-数据格式: 代码|YYYY-MM-DD|O|H|L|C|V
-说明: O=开盘价, H=最高价, L=最低价, C=收盘价, V=成交量
+Data format: Symbol|YYYY-MM-DD|O|H|L|C|V
+Legend: O=Open, H=High, L=Low, C=Close, V=Volume
 
-数据:
+Data:
 {data_text}
 
-任务:
-1. 根据原始数据自行计算技术指标（MA5, MA20, MA60, RSI, MACD等）
-2. 自主设计评分体系（趋势、动量、技术信号等维度）
-3. 给每只ETF综合打分(0-100分)
-4. 给出信号(buy/hold/sell)
+Tasks:
+1. Calculate technical indicators from raw data (MA5, MA20, MA60, RSI, MACD, etc.)
+2. Design your own scoring system (trend, momentum, technical signals, etc.)
+3. Give each ETF a comprehensive score (0-100)
+4. Provide signal (buy/hold/sell)
 
-输出JSON:
+Output JSON:
 {{
     "scoring_system": {{
         "dimensions": [
-            {{"name": "趋势", "weight": 0.35}},
-            {{"name": "动量", "weight": 0.30}},
-            {{"name": "技术信号", "weight": 0.35}}
+            {{"name": "Trend", "weight": 0.35}},
+            {{"name": "Momentum", "weight": 0.30}},
+            {{"name": "Technical Signals", "weight": 0.35}}
         ]
     }},
     "scores": [
         {{
-            "symbol": "代码",
-            "score": 分数,
+            "symbol": "Symbol",
+            "score": Score,
             "signal": "buy/hold/sell",
-            "reason": "理由"
+            "reason": "Reason"
         }}
     ]
 }}"""
@@ -195,24 +248,24 @@ class ETFAnalyzeSkill(BaseBatchSkill):
             return self._parse_response(response)
             
         except Exception as e:
-            print(f"      ⚠️ LLM分析失败: {e}")
+            print(f"      ⚠️ LLM analysis failed: {e}")
             return []
     
     def _parse_response(self, response: str) -> List[Dict]:
-        """解析响应"""
+        """Parse LLM response"""
         data = self._extract_json(response)
         if data:
             system = data.get('scoring_system', {})
             if system.get('dimensions'):
                 dims = system['dimensions']
-                print(f"     📋 评分体系: {len(dims)} 个维度")
+                print(f"     📋 Scoring system: {len(dims)} dimensions")
                 for d in dims[:3]:
                     print(f"        - {d.get('name')} ({d.get('weight', 0)})")
             return data.get('scores', [])
         return []
     
     def _fallback(self, batch: List[str], **kwargs) -> List[Dict]:
-        """降级分析 - 简单规则"""
+        """Fallback analysis - simple rules"""
         results = []
         data = self.data_skill.execute(batch, days=30)
         
@@ -237,7 +290,7 @@ class ETFAnalyzeSkill(BaseBatchSkill):
                     'symbol': symbol,
                     'score': min(100, max(0, score)),
                     'signal': signal,
-                    'reason': '规则引擎降级评分'
+                    'reason': 'Rule engine fallback scoring'
                 })
             except:
                 continue
@@ -246,71 +299,127 @@ class ETFAnalyzeSkill(BaseBatchSkill):
     
     def execute(self, symbols: List[str], keep_count: int = 700) -> List[Dict]:
         """
-        批量分析ETF - 确保有足够的数量进入下一阶段
+        Batch analyze ETFs - ensure enough quantity for next stage
         """
         if not symbols:
-            print("   ⚠️ 没有symbols需要分析")
+            print("   ⚠️ No symbols to analyze")
             return []
         
-        # 调用父类执行
+        # Call parent execute
         results = super().execute(symbols, keep_count)
         
-        # 检查结果数量，如果太少则使用降级方案补充
+        # Check result count, if too few, use fallback to supplement
         if len(results) < self.MIN_KEEP_COUNT:
-            print(f"   ⚠️ 大模型分析结果不足 ({len(results)} < {self.MIN_KEEP_COUNT})，使用规则引擎补充...")
+            print(f"   ⚠️ LLM analysis results insufficient ({len(results)} < {self.MIN_KEEP_COUNT}), using rule engine to supplement...")
             
-            # 获取所有有数据的symbols
+            # Get all symbols with data
             data = self.data_skill.execute(symbols, days=30)
             available_symbols = list(data.keys())
             
             if available_symbols:
-                # 从剩余symbols中补充
+                # Supplement from remaining symbols
                 existing_symbols = {r.get('symbol') for r in results}
                 remaining = [s for s in available_symbols if s not in existing_symbols]
                 
                 if remaining:
                     fallback_results = self._fallback(remaining[:keep_count])
                     results.extend(fallback_results)
-                    print(f"   ✅ 补充了 {len(fallback_results)} 个规则评分结果")
+                    print(f"   ✅ Added {len(fallback_results)} rule engine scoring results")
         
-        # 按分数排序
+        # Sort by score
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
         
-        # 确保返回的数量不超过keep_count
+        # Ensure returned count doesn't exceed keep_count
         final_results = results[:keep_count]
-        print(f"   ✅ 最终保留 {len(final_results)} 个候选")
+        print(f"   ✅ Final retained {len(final_results)} candidates")
         
         return final_results
 
 
 class ETFRankingSkill(BaseBatchSkill):
     """
-    技能: ETF精细排名
-    功能: 对候选ETF进行精细比较和排名（阶段2）
-    基于第一阶段大模型的评分结果，同时参考原始数据
+    Skill: ETF Fine Ranking
+    Function: Fine comparison and ranking of candidate ETFs (Stage 2)
+    Based on Stage 1 LLM scoring results, with reference to raw data
     """
     
     def __init__(self):
         super().__init__(
             name="etf_ranking",
-            description="对候选ETF进行精细比较和排名",
+            description="Fine comparison and ranking of candidate ETFs",
             batch_size=20,
             max_workers=4,
             timeout=60,
-            output_tokens=400
+            output_tokens=400,
+            max_context_tokens=30000  # Safe threshold
         )
         self.data_skill = ETFDataSkill()
-        self.MIN_KEEP_COUNT = 10  # 最低保留数量
+        self.MIN_KEEP_COUNT = 10
+        self._token_counter = None
+        
+        try:
+            import tiktoken
+            self._token_counter = tiktoken.get_encoding("cl100k_base")
+        except:
+            self._token_counter = None
+    
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens in text"""
+        if self._token_counter:
+            return len(self._token_counter.encode(text))
+        return len(text) // 3
+    
+    def _build_batch_dynamically(self, items: List[Dict], base_prompt: str, **kwargs) -> List[List[Dict]]:
+        """
+        Dynamically build batches based on token count
+        Each ETF data is loaded and token count is checked before adding to batch
+        """
+        batches = []
+        current_batch = []
+        current_tokens = self._count_tokens(base_prompt) + self.output_tokens
+        
+        for item in items:
+            symbol = item.get('symbol')
+            if not symbol:
+                continue
+            
+            # Get full data
+            df = self.data_skill._get_single(symbol, days=60)
+            if df is None or df.empty:
+                full_data = ''
+            else:
+                full_data = self.data_skill.get_summary(df, days=60)
+            
+            # Build item string and count tokens
+            score = item.get('score', 0)
+            signal = item.get('signal', 'hold')
+            item_str = f"{symbol}|Init:{score}|Signal:{signal}|{full_data}"
+            item_tokens = self._count_tokens(item_str)
+            
+            # Check if adding this item exceeds limit
+            if current_tokens + item_tokens > self.max_context_tokens:
+                if current_batch:
+                    batches.append(current_batch)
+                current_batch = [item]
+                current_tokens = self._count_tokens(base_prompt) + self.output_tokens + item_tokens
+            else:
+                current_batch.append(item)
+                current_tokens += item_tokens
+        
+        if current_batch:
+            batches.append(current_batch)
+        
+        return batches
     
     def _preprocess(self, candidates: List[Dict], **kwargs) -> List[Dict]:
-        """补充原始数据用于排名"""
+        """Enrich with full data for ranking"""
         enriched = []
         symbols_to_fetch = [item.get('symbol') for item in candidates if item.get('symbol')]
         
         if not symbols_to_fetch:
             return []
         
-        # 批量获取数据
+        # Batch get data
         data_map = self.data_skill.execute(symbols_to_fetch, days=60)
         
         for item in candidates:
@@ -323,14 +432,13 @@ class ETFRankingSkill(BaseBatchSkill):
                 item['full_data'] = self.data_skill.get_summary(df, days=60)
                 enriched.append(item)
             else:
-                # 即使没有数据也保留，但标记为无数据
                 item['full_data'] = ''
                 enriched.append(item)
         
         return enriched
     
     def _process_batch(self, batch: List[Dict], **kwargs) -> List[Dict]:
-        """排名一批候选"""
+        """Rank a batch of candidates"""
         data_text = []
         for item in batch:
             symbol = item.get('symbol', '')
@@ -339,24 +447,24 @@ class ETFRankingSkill(BaseBatchSkill):
             full_data = item.get('full_data', '')
             
             if full_data:
-                data_text.append(f"{symbol}|初评:{score}|信号:{signal}|{full_data}")
+                data_text.append(f"{symbol}|Init:{score}|Signal:{signal}|{full_data}")
             else:
-                data_text.append(f"{symbol}|初评:{score}|信号:{signal}|无数据")
+                data_text.append(f"{symbol}|Init:{score}|Signal:{signal}|No data")
         
         prompt = f"""
-请对以下 {len(batch)} 只ETF进行精细比较排名。
+Please perform fine comparative ranking of the following {len(batch)} ETFs.
 
-数据格式: 代码|初评分|信号|YYYY-MM-DD|O|H|L|C|V
+Data format: Symbol|Init Score|Signal|YYYY-MM-DD|O|H|L|C|V
 
-数据:
+Data:
 {chr(10).join(data_text)}
 
-任务: 根据原始OHLCV数据和初评分，重新评估各ETF的相对强弱，给出精细评分(0-100分)。
+Task: Based on raw OHLCV data and initial scores, re-evaluate the relative strength of each ETF, give refined scores (0-100).
 
-输出JSON:
+Output JSON:
 {{
     "rankings": [
-        {{"symbol": "代码", "rank_score": 分数, "signal": "buy/hold/sell", "reason": "理由"}}
+        {{"symbol": "Symbol", "rank_score": Score, "signal": "buy/hold/sell", "reason": "Reason"}}
     ]
 }}"""
 
@@ -372,82 +480,78 @@ class ETFRankingSkill(BaseBatchSkill):
             return data.get('rankings', []) if data else []
                 
         except Exception as e:
-            print(f"   ⚠️ 排名失败: {e}")
+            print(f"   ⚠️ Ranking failed: {e}")
             return []
     
     def _fallback(self, batch: List[Dict], **kwargs) -> List[Dict]:
-        """降级排名 - 保持原顺序"""
+        """Fallback ranking - keep original order"""
         return batch
     
     def execute(self, candidates: List[Dict], keep_count: int = 100) -> List[Dict]:
         """
-        精细排名 - 确保有足够的数量进入下一阶段
+        Fine ranking - ensure enough quantity for next stage
         """
         if not candidates:
-            print("   ⚠️ 没有candidates需要排名")
+            print("   ⚠️ No candidates to rank")
             return []
         
-        # 调用父类执行
+        # Call parent execute
         results = super().execute(candidates, keep_count)
         
-        # 检查结果数量
+        # Check result count
         if len(results) < self.MIN_KEEP_COUNT:
-            print(f"   ⚠️ 大模型排名结果不足 ({len(results)} < {self.MIN_KEEP_COUNT})，使用降级方案...")
+            print(f"   ⚠️ LLM ranking results insufficient ({len(results)} < {self.MIN_KEEP_COUNT}), using fallback...")
             
-            # 使用原始候选列表补充
             existing_symbols = {r.get('symbol') for r in results}
             remaining = [c for c in candidates if c.get('symbol') not in existing_symbols]
             
             if remaining:
-                # 按原评分排序
                 remaining.sort(key=lambda x: x.get('score', 0), reverse=True)
                 needed = keep_count - len(results)
                 fallback_results = remaining[:needed]
                 
-                # 转换为排名格式
                 for item in fallback_results:
                     item['rank_score'] = item.get('score', 0)
                 
                 results.extend(fallback_results)
-                print(f"   ✅ 补充了 {len(fallback_results)} 个降级排名结果")
+                print(f"   ✅ Added {len(fallback_results)} fallback ranking results")
         
-        # 按rank_score排序
+        # Sort by rank_score
         results.sort(key=lambda x: x.get('rank_score', 0), reverse=True)
         
-        # 确保返回的数量不超过keep_count
         final_results = results[:keep_count]
-        print(f"   ✅ 最终保留 {len(final_results)} 个候选")
+        print(f"   ✅ Final retained {len(final_results)} candidates")
         
         return final_results
 
 
 class ETFDeepAnalyzeSkill(BaseBatchSkill):
     """
-    技能: ETF深度分析
-    功能: 对最终候选进行深度分析（阶段3）
-    只提供原始OHLCV数据，所有分析由大模型完成
+    Skill: ETF Deep Analysis
+    Function: Deep analysis of final candidates (Stage 3)
+    Only provide raw OHLCV data, all analysis done by LLM
     """
     
     def __init__(self):
         super().__init__(
             name="etf_deep_analyze",
-            description="对ETF进行深度技术分析",
+            description="Deep technical analysis of ETFs",
             batch_size=1,
             max_workers=1,
             timeout=120,
-            output_tokens=600
+            output_tokens=600,
+            max_context_tokens=30000
         )
         self.data_skill = ETFDataSkill()
-        self.MIN_KEEP_COUNT = 1  # 至少返回1个
+        self.MIN_KEEP_COUNT = 1
     
     def _preprocess(self, candidates: List[Dict], **kwargs) -> List[Dict]:
         max_items = kwargs.get('max_items', 50)
-        # 优先处理排名靠前的
         sorted_candidates = sorted(candidates, key=lambda x: x.get('rank_score', 0), reverse=True)
         return sorted_candidates[:max_items]
     
     def _process_batch(self, batch: List[Dict], **kwargs) -> List[Dict]:
-        """深度分析单只ETF - 只提供原始数据"""
+        """Deep analysis of single ETF - only provide raw data"""
         if not batch:
             return []
         
@@ -456,46 +560,46 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
         if not symbol:
             return []
         
-        print(f"     深度分析 {symbol}...")
+        print(f"     Deep analyzing {symbol}...")
         
-        # 获取原始数据（不计算指标）
+        # Get raw data (no indicators calculated)
         df = self.data_skill.execute([symbol], days=60).get(symbol)
         if df is None or df.empty:
-            print(f"     ⚠️ 无法获取 {symbol} 的原始数据")
+            print(f"     ⚠️ Cannot get raw data for {symbol}")
             return []
         
         data_str = self.data_skill.get_summary(df, days=30)
         
         prompt = f"""
-# 任务
-对 {symbol} 进行深度技术分析。
+# Task
+Perform deep technical analysis on {symbol}.
 
-# 原始OHLCV数据
-格式: YYYY-MM-DD|O|H|L|C|V
+# Raw OHLCV Data
+Format: YYYY-MM-DD|O|H|L|C|V
 
 {data_str}
 
-# 分析要求
-请根据原始数据自行计算以下指标：
-1. 均线系统 (MA5, MA20, MA60)
-2. RSI (14日)
+# Analysis Requirements
+Please calculate the following indicators from raw data:
+1. Moving Average System (MA5, MA20, MA60)
+2. RSI (14-day)
 3. MACD
-4. 布林带
-5. 量价关系
-6. 趋势判断
-7. 支撑压力位
-8. K线形态
+4. Bollinger Bands
+5. Price-Volume Relationship
+6. Trend Analysis
+7. Support and Resistance Levels
+8. Candlestick Patterns
 
-# 输出JSON
+# Output JSON
 {{
-    "deep_score": 0-100评分,
+    "deep_score": 0-100 Score,
     "recommendation": "buy/hold/sell",
-    "signal": "具体建议",
+    "signal": "Specific suggestion",
     "confidence": 0.0-1.0,
     "risk_level": "low/medium/high",
-    "analysis": "详细分析",
-    "target_price": 目标价,
-    "stop_loss": 止损价
+    "analysis": "Detailed analysis",
+    "target_price": Target price,
+    "stop_loss": Stop loss price
 }}"""
 
         try:
@@ -519,7 +623,7 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
                 return [data]
                 
         except Exception as e:
-            print(f"      ⚠️ 分析 {symbol} 失败: {e}")
+            print(f"      ⚠️ Analysis of {symbol} failed: {e}")
         
         return []
     
@@ -534,10 +638,10 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
                 'symbol': symbol,
                 'deep_score': 50,
                 'recommendation': 'hold',
-                'signal': '持有观望',
+                'signal': 'Hold',
                 'confidence': 0.3,
                 'risk_level': 'medium',
-                'analysis': '深度分析失败，降级到中性建议',
+                'analysis': 'Deep analysis failed, downgraded to neutral suggestion',
                 'target_price': 0,
                 'stop_loss': 0,
                 'quick_score': item.get('score', 50),
@@ -549,20 +653,20 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
     
     def execute(self, items: List[Dict], top_k: int = 3, **kwargs) -> List[Dict]:
         """
-        深度分析 - 确保至少返回top_k个结果
+        Deep analysis - ensure at least top_k results returned
         """
         if not items:
-            print("   ⚠️ 没有items需要深度分析")
+            print("   ⚠️ No items for deep analysis")
             return []
         
         total = min(len(items), kwargs.get('max_items', 50))
-        print(f"   📊 开始深度分析 {total} 个ETF...")
+        print(f"   📊 Starting deep analysis of {total} ETFs...")
         start_time = time.time()
         
         results = []
         failed_symbols = []
         
-        with tqdm(total=total, desc="深度分析", unit="个") as pbar:
+        with tqdm(total=total, desc="Deep Analysis", unit="stocks") as pbar:
             for item in items[:total]:
                 symbol = item.get('symbol')
                 batch_result = self._process_batch([item], **kwargs)
@@ -573,28 +677,23 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
                         failed_symbols.append(symbol)
                 pbar.update(1)
         
-        # 如果结果不足，使用降级方案补充
         if len(results) < top_k and failed_symbols:
-            print(f"   ⚠️ 成功分析 {len(results)} 个，失败 {len(failed_symbols)} 个，使用降级方案补充...")
+            print(f"   ⚠️ Successfully analyzed {len(results)}, failed {len(failed_symbols)}, using fallback...")
             
-            # 从失败列表中取前几个进行降级处理
             fallback_items = [item for item in items if item.get('symbol') in failed_symbols[:top_k * 2]]
             if fallback_items:
                 fallback_results = self._fallback(fallback_items)
                 results.extend(fallback_results)
-                print(f"   ✅ 补充了 {len(fallback_results)} 个降级分析结果")
+                print(f"   ✅ Added {len(fallback_results)} fallback analysis results")
         
-        # 按final_score排序
         results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
         
         elapsed = time.time() - start_time
-        print(f"      ✅ 完成，耗时 {elapsed:.2f}s")
+        print(f"      ✅ Completed, time used {elapsed:.2f}s")
         
-        # 确保至少返回top_k个
         final_results = results[:top_k * 3]
         if len(final_results) < top_k:
-            print(f"   ⚠️ 结果不足 ({len(final_results)} < {top_k})，尝试获取更多...")
-            # 从items中取更多进行降级处理
+            print(f"   ⚠️ Insufficient results ({len(final_results)} < {top_k}), trying to get more...")
             remaining = [item for item in items[:total] if item.get('symbol') not in {r.get('symbol') for r in results}]
             if remaining:
                 extra_fallback = self._fallback(remaining[:top_k * 2])
@@ -602,5 +701,5 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
                 results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
                 final_results = results[:top_k * 3]
         
-        print(f"   ✅ 最终返回 {len(final_results)} 个深度分析结果")
+        print(f"   ✅ Final returned {len(final_results)} deep analysis results")
         return final_results
