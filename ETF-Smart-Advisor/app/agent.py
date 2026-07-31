@@ -354,7 +354,7 @@ class ETFAdvisorAgent:
     def get_top_recommendations_v2(self,force_update: bool = False):
         """获取Top推荐 - Skill-based版本"""
         try:
-            result = self.advisor2.get_top_recommendations_v2(force_update=force_update)
+            result = self.advisor2.get_top_recommendations(force_update=force_update)
 
             return {
                 "status": "success",
