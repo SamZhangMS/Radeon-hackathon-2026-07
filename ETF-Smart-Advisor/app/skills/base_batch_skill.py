@@ -4,7 +4,8 @@ import threading
 import time
 import re
 import json
-from typing import Dict, List, Any, Optional, Callable
+import gc
+from typing import Dict, List, Any, Optional, Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from abc import abstractmethod
@@ -16,7 +17,8 @@ from ..config import LLM_API_CONFIG
 
 class BaseBatchSkill(BaseSkill):
     """
-    Batch processing skill base class
+    Batch processing skill base class with memory optimization
+    流式处理：边加载数据边生成prompt，达到token限制时立即处理
     """
     
     def __init__(
@@ -27,7 +29,7 @@ class BaseBatchSkill(BaseSkill):
         max_workers: int = 4,
         timeout: int = 60,
         output_tokens: int = 400,
-        safety_margin: float = 0.75  # 75% safety margin
+        safety_margin: float = 0.75
     ):
         super().__init__(name, description)
         
@@ -40,19 +42,20 @@ class BaseBatchSkill(BaseSkill):
         
         # ✅ 从 config 读取 max_model_len
         self.max_model_len = LLM_API_CONFIG.get("max_model_len", 65536)
-        # vLLM 配置中的 max_model_len
         vllm_config = LLM_API_CONFIG.get("vllm", {})
         self.vllm_max_model_len = vllm_config.get("max_model_len", self.max_model_len)
-        # 使用较小的值作为安全上限
         self.max_context_tokens = min(self.max_model_len, self.vllm_max_model_len)
         
-        # ✅ 计算安全可用 tokens（预留输出 tokens 和安全裕度）
+        # ✅ 计算安全可用 tokens
         self.available_tokens = int(self.max_context_tokens * self.safety_margin) - self.output_tokens
+        if self.available_tokens < 1000:
+            self.available_tokens = 1000
         
-        print(f"   📊 Max context tokens: {self.max_context_tokens}")
-        print(f"   📊 Available tokens (with safety): {self.available_tokens}")
-        print(f"   📊 Output tokens reserved: {self.output_tokens}")
-        print(f"   📊 Safety margin: {self.safety_margin * 100}%")
+        # ✅ 实际限制（更保守）
+        self.actual_limit = int(self.available_tokens * 0.85)
+        
+        print(f"   📊 Max context: {self.max_context_tokens}, Available: {self.available_tokens}")
+        print(f"   📊 Actual limit: {self.actual_limit}")
         
         # Initialize tokenizer
         try:
@@ -64,20 +67,20 @@ class BaseBatchSkill(BaseSkill):
         self._lock = threading.Lock()
         self._results = []
         self._progress = 0
+        
+        # ✅ 内存优化：数据缓存管理
+        self._data_cache = {}  # 缓存已加载的数据
+        self._cache_lock = threading.Lock()
+        self._max_cache_size = 100  # 最大缓存数量
     
     def _count_tokens(self, text: str) -> int:
         """Count tokens in text"""
         if self._token_counter:
             return len(self._token_counter.encode(text))
-        # Fallback: rough estimate
-        return len(text) // 3
+        return len(text) // 2
     
     def _get_base_prompt(self) -> str:
         """Get base prompt template (subclass can override)"""
-        return ""
-    
-    def _build_sample_prompt(self, sample_items: List[Any], **kwargs) -> str:
-        """Build sample prompt for token estimation (subclass can override)"""
         return ""
     
     def _get_item_data_str(self, item: Any, **kwargs) -> str:
@@ -88,52 +91,192 @@ class BaseBatchSkill(BaseSkill):
             return item.get('full_data', item.get('summary', str(item)))
         return str(item)
     
-    def _build_batch_dynamically(self, items: List[Any], **kwargs) -> List[List[Any]]:
+    def _extract_json(self, response: str) -> Optional[Dict]:
+        """Extract JSON from response"""
+        try:
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                return json.loads(json_match.group())
+        except:
+            pass
+        return None
+    
+    # ============================================================
+    # 流式数据处理核心
+    # ============================================================
+    
+    def _streaming_process(
+        self, 
+        items: List[Any], 
+        data_loader: Callable,  # 加载数据的函数
+        **kwargs
+    ) -> List[Dict]:
         """
-        Dynamically build batches based on token count
+        流式处理：边加载边生成prompt，达到限制时立即处理
+        
+        Args:
+            items: 待处理的项目列表
+            data_loader: 数据加载函数，接受 item 返回数据
         """
+        all_results = []
+        
+        # 1. 获取基础prompt用于token计算
         base_prompt = self._get_base_prompt()
         base_tokens = self._count_tokens(base_prompt)
         
-        batches = []
+        # 2. 初始化当前批次
         current_batch = []
+        current_data = {}  # symbol -> data
         current_tokens = base_tokens + self.output_tokens
         
-        for item in items:
-            # Get item data string
-            item_str = self._get_item_data_str(item, **kwargs)
-            item_tokens = self._count_tokens(item_str)
+        # 3. 存储所有已加载的数据（用于后续步骤）
+        all_loaded_data = {}
+        
+        # 4. 分批处理进度条
+        total_items = len(items)
+        processed_count = 0
+        
+        with tqdm(total=total_items, desc="Streaming processing", unit="items") as pbar:
+            for item in items:
+                # 加载数据
+                symbol = self._get_symbol(item)
+                if not symbol:
+                    pbar.update(1)
+                    continue
+                
+                # 检查缓存
+                if symbol in self._data_cache:
+                    data = self._data_cache[symbol]
+                else:
+                    data = data_loader(symbol)
+                    if data is None:
+                        pbar.update(1)
+                        continue
+                    # 缓存数据
+                    with self._cache_lock:
+                        if len(self._data_cache) < self._max_cache_size:
+                            self._data_cache[symbol] = data
+                
+                # 保存所有加载的数据
+                all_loaded_data[symbol] = data
+                
+                # 生成该项的prompt片段
+                item_str = self._get_item_data_str_for_item(item, data, **kwargs)
+                item_tokens = self._count_tokens(item_str)
+                
+                # 检查是否超出限制
+                if current_tokens + item_tokens > self.actual_limit:
+                    # ✅ 达到限制，处理当前批次
+                    if current_batch:
+                        batch_results = self._process_batch_with_data(current_batch, current_data, **kwargs)
+                        if batch_results:
+                            all_results.extend(batch_results)
+                            # ✅ 从缓存中删除已处理的数据（释放内存）
+                            for sym in current_batch:
+                                with self._cache_lock:
+                                    if sym in self._data_cache:
+                                        del self._data_cache[sym]
+                    
+                    # 开始新批次
+                    current_batch = [symbol]
+                    current_data = {symbol: data}
+                    current_tokens = base_tokens + self.output_tokens + item_tokens
+                else:
+                    current_batch.append(symbol)
+                    current_data[symbol] = data
+                    current_tokens += item_tokens
+                
+                processed_count += 1
+                pbar.update(1)
             
-            # Check if adding this item exceeds limit
-            if current_tokens + item_tokens > self.available_tokens:
-                if current_batch:
-                    batches.append(current_batch)
-                current_batch = [item]
-                current_tokens = base_tokens + self.output_tokens + item_tokens
-            else:
-                current_batch.append(item)
-                current_tokens += item_tokens
+            # 处理最后一批
+            if current_batch:
+                batch_results = self._process_batch_with_data(current_batch, current_data, **kwargs)
+                if batch_results:
+                    all_results.extend(batch_results)
+                # 清理缓存
+                for sym in current_batch:
+                    with self._cache_lock:
+                        if sym in self._data_cache:
+                            del self._data_cache[sym]
         
-        if current_batch:
-            batches.append(current_batch)
+        # 保存所有已加载的数据供后续步骤使用
+        self._all_loaded_data = all_loaded_data
         
-        return batches
+        # 强制垃圾回收
+        gc.collect()
+        
+        return all_results
     
-    def _create_batches(self, items: List[Any]) -> List[List[Any]]:
-        """Create batches - can be overridden for dynamic batching"""
-        # Try dynamic batching first
-        try:
-            batches = self._build_batch_dynamically(items)
-            if batches:
-                return batches
-        except Exception as e:
-            print(f"   ⚠️ Dynamic batching failed, using fixed batch size: {e}")
+    def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
+        """获取单个项目的prompt片段（子类可重写）"""
+        return self._get_item_data_str(item, **kwargs)
+    
+    def _process_batch_with_data(
+        self, 
+        batch: List[str], 
+        batch_data: Dict[str, Any], 
+        **kwargs
+    ) -> List[Dict]:
+        """
+        使用已加载的数据处理批次
+        """
+        # 构建批次数据
+        batch_items = []
+        for symbol in batch:
+            data = batch_data.get(symbol)
+            if data is not None:
+                # 构造item用于_process_batch
+                item = self._create_item_from_data(symbol, data)
+                if item:
+                    batch_items.append(item)
         
-        # Fallback to fixed batch size
-        batches = []
-        for i in range(0, len(items), self.batch_size):
-            batches.append(items[i:i+self.batch_size])
-        return batches
+        if not batch_items:
+            return []
+        
+        # 调用_process_batch处理
+        return self._process_batch(batch_items, **kwargs)
+    
+    def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
+        """
+        从数据创建item（子类可重写）
+        """
+        if isinstance(data, dict):
+            data['symbol'] = symbol
+            return data
+        elif isinstance(data, pd.DataFrame):
+            return {
+                'symbol': symbol,
+                'data': data,
+                'full_data': self._get_summary_from_data(data),
+                'summary': self._get_summary_from_data(data, days=20)
+            }
+        return {'symbol': symbol, 'data': data}
+    
+    def _get_summary_from_data(self, data: Any, days: int = 60) -> str:
+        """从数据获取摘要（子类可重写）"""
+        if hasattr(data, 'get_summary'):
+            return data.get_summary(days)
+        return str(data)[:500]
+    
+    # ============================================================
+    # 内存管理方法
+    # ============================================================
+    
+    def clear_cache(self):
+        """清除数据缓存"""
+        with self._cache_lock:
+            self._data_cache.clear()
+        gc.collect()
+        print("   ✅ Data cache cleared")
+    
+    def get_loaded_data(self, symbol: str) -> Optional[Any]:
+        """获取已加载的数据"""
+        return self._all_loaded_data.get(symbol) if hasattr(self, '_all_loaded_data') else None
+    
+    def get_all_loaded_data(self) -> Dict[str, Any]:
+        """获取所有已加载的数据"""
+        return getattr(self, '_all_loaded_data', {})
     
     # ============================================================
     # Abstract methods (subclasses must implement)
@@ -154,34 +297,20 @@ class BaseBatchSkill(BaseSkill):
     # ============================================================
     
     def _preprocess(self, items: List[Any], **kwargs) -> List[Any]:
-        """Preprocess items"""
         return items
     
     def _postprocess(self, results: List[Dict], **kwargs) -> List[Dict]:
-        """Postprocess results"""
         return results
     
     def _sort_results(self, results: List[Dict]) -> List[Dict]:
-        """Sort results"""
         return sorted(results, key=lambda x: x.get('score', 0), reverse=True)
     
     def _get_symbol(self, item: Any) -> str:
-        """Get symbol from item"""
         if isinstance(item, str):
             return item
         elif isinstance(item, dict):
             return item.get('symbol', '')
         return ''
-    
-    def _extract_json(self, response: str) -> Optional[Dict]:
-        """Extract JSON from response"""
-        try:
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                return json.loads(json_match.group())
-        except:
-            pass
-        return None
     
     # ============================================================
     # Main execution method
@@ -189,48 +318,26 @@ class BaseBatchSkill(BaseSkill):
     
     def execute(self, items: List[Any], keep_count: int = None, **kwargs) -> List[Dict]:
         """
-        Batch execution - with dynamic batch sizing
+        Batch execution with streaming processing
         """
         if not items:
             return []
         
-        print(f"   📊 Processing {len(items)} items ({self.max_workers} threads)...")
+        print(f"   📊 Streaming processing {len(items)} items...")
         start_time = time.time()
         
         # Preprocess
         processed = self._preprocess(items, **kwargs)
         
-        # Create batches (with dynamic sizing)
-        batches = self._create_batches(processed)
-        print(f"   📦 {len(batches)} batches, avg {len(batches[0]) if batches else 0} items/batch")
+        # 定义数据加载函数
+        def data_loader(symbol: str):
+            return self._load_item_data(symbol, **kwargs)
         
-        # Multi-threaded execution
-        all_results = []
-        all_results_lock = threading.Lock()
-        
-        with tqdm(total=len(batches), desc="Processing batches", unit="batch") as pbar:
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                future_to_batch = {
-                    executor.submit(self._process_batch, batch, **kwargs): i
-                    for i, batch in enumerate(batches)
-                }
-                
-                for future in as_completed(future_to_batch):
-                    batch_idx = future_to_batch[future]
-                    try:
-                        batch_results = future.result(timeout=self.timeout)
-                        if batch_results:
-                            with all_results_lock:
-                                all_results.extend(batch_results)
-                    except Exception as e:
-                        print(f"      ⚠️ Batch {batch_idx+1} failed: {e}")
-                        fallback = self._fallback(batches[batch_idx], **kwargs)
-                        with all_results_lock:
-                            all_results.extend(fallback)
-                    pbar.update(1)
+        # 流式处理
+        results = self._streaming_process(processed, data_loader, **kwargs)
         
         # Postprocess
-        results = self._postprocess(all_results, **kwargs)
+        results = self._postprocess(results, **kwargs)
         results = self._sort_results(results)
         
         if keep_count is not None:
@@ -241,41 +348,23 @@ class BaseBatchSkill(BaseSkill):
         
         return results
     
+    def _load_item_data(self, symbol: str, **kwargs) -> Optional[Any]:
+        """
+        加载单个项目的数据（子类可重写）
+        """
+        return None
+    
     # ============================================================
     # Async version
     # ============================================================
     
     async def execute_async(self, items: List[Any], keep_count: int = None, **kwargs) -> List[Dict]:
-        """Async execution"""
         import asyncio
-        
         if not items:
             return []
         
-        processed = self._preprocess(items, **kwargs)
-        batches = self._create_batches(processed)
-        
-        tasks = [
-            asyncio.get_event_loop().run_in_executor(
-                None, self._process_batch, batch, **kwargs
-            )
-            for batch in batches
-        ]
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        all_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                fallback = self._fallback(batches[i], **kwargs)
-                all_results.extend(fallback)
-            elif result:
-                all_results.extend(result)
-        
-        results = self._postprocess(all_results, **kwargs)
-        results = self._sort_results(results)
-        
-        if keep_count is not None:
-            results = results[:keep_count]
-        
-        return results
+        # 在executor中运行同步执行
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self.execute, items, keep_count, **kwargs
+        )

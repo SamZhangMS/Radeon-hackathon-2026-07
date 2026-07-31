@@ -9,6 +9,7 @@ import json
 import re
 import time
 import threading
+import gc
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
@@ -17,6 +18,63 @@ from .base_skill import BaseSkill
 from .base_batch_skill import BaseBatchSkill
 from ..data_fetcher import ETFDataFetcher
 from ..llm_client import get_llm_client
+
+
+class ETFDataLoader:
+    """ETF数据加载器 - 支持流式加载和内存管理"""
+    
+    def __init__(self):
+        self.fetcher = ETFDataFetcher()
+        self._cache = {}
+        self._max_cache_size = 200
+    
+    def load_data(self, symbol: str, days: int = 60) -> Optional[pd.DataFrame]:
+        """加载单个ETF数据"""
+        cache_key = f"{symbol}_{days}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+        
+        try:
+            df = self.fetcher.get_history(symbol, f"{days}d")
+            if not df.empty:
+                # 限制缓存大小
+                if len(self._cache) >= self._max_cache_size:
+                    # 删除最早的条目
+                    oldest_key = next(iter(self._cache))
+                    del self._cache[oldest_key]
+                self._cache[cache_key] = df
+                return df
+        except Exception as e:
+            print(f"      ⚠️ Failed to load {symbol}: {e}")
+        return None
+    
+    def get_summary(self, df: pd.DataFrame, days: int = 20) -> str:
+        """获取数据摘要"""
+        if df.empty:
+            return ""
+        
+        df = df.tail(days)
+        if 'date' in df.columns:
+            df = df.set_index('date')
+        
+        cols = ['open', 'high', 'low', 'close', 'volume']
+        available_cols = [c for c in cols if c in df.columns]
+        
+        if not available_cols:
+            return ""
+        
+        csv_str = df[available_cols].round(4).to_csv(
+            header=False,
+            float_format='%.4f',
+            date_format='%Y-%m-%d'
+        )
+        
+        return csv_str.strip().replace('\n', '|')
+    
+    def clear_cache(self):
+        """清除缓存"""
+        self._cache.clear()
+        gc.collect()
 
 
 class ETFDataSkill(BaseSkill):
@@ -87,7 +145,6 @@ class ETFDataSkill(BaseSkill):
         """
         Get data summary - only raw OHLCV data
         Format: Date|O|H|L|C|V
-        Use full date format YYYY-MM-DD to avoid cross-year confusion
         """
         if df.empty:
             return ""
@@ -113,8 +170,8 @@ class ETFDataSkill(BaseSkill):
 
 class ETFAnalyzeSkill(BaseBatchSkill):
     """
-    Skill: ETF Quick Analysis
-    Function: Quick scoring and analysis for ETFs (Stage 1)
+    Skill: ETF Quick Analysis (Stage 1)
+    Function: Quick scoring and analysis for ETFs
     Only provide raw OHLCV data, all indicators calculated by LLM itself
     """
     
@@ -128,43 +185,72 @@ class ETFAnalyzeSkill(BaseBatchSkill):
             output_tokens=500,
             safety_margin=0.75
         )
-        self.data_skill = ETFDataSkill()
+        self.data_loader = ETFDataLoader()
         self.MIN_KEEP_COUNT = 50
     
-    def _preprocess(self, items: List[str], **kwargs) -> List[str]:
-        return [s for s in items if s]
+    def _get_base_prompt(self) -> str:
+        return """You are an experienced quantitative analyst. Please analyze the raw OHLCV data of ETFs.
+
+Data format: Symbol|YYYY-MM-DD|O|H|L|C|V
+Legend: O=Open, H=High, L=Low, C=Close, V=Volume
+
+Tasks:
+1. Calculate technical indicators from raw data (MA5, MA20, MA60, RSI, MACD, etc.)
+2. Design your own scoring system
+3. Give each ETF a comprehensive score (0-100)
+4. Provide signal (buy/hold/sell)
+
+Output JSON:
+{
+    "scoring_system": {"dimensions": [{"name": "Trend", "weight": 0.35}, ...]},
+    "scores": [{"symbol": "Symbol", "score": Score, "signal": "buy/hold/sell", "reason": "Reason"}]
+}"""
     
-    def _process_batch(self, batch: List[str], **kwargs) -> List[Dict]:
-        """Analyze a batch of ETFs - only provide raw OHLCV data"""
+    def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
+        """加载单个ETF数据"""
+        days = kwargs.get('data_days', 30)
+        return self.data_loader.load_data(symbol, days)
+    
+    def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
+        """获取单个项目的prompt片段"""
+        symbol = self._get_symbol(item)
+        if isinstance(data, pd.DataFrame):
+            summary = self.data_loader.get_summary(data, days=20)
+            return f"{symbol}|{summary}"
+        return symbol
+    
+    def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
+        """从数据创建item"""
+        if isinstance(data, pd.DataFrame):
+            return {
+                'symbol': symbol,
+                'full_data': self.data_loader.get_summary(data, 20)
+            }
+        return {'symbol': symbol}
+    
+    def _process_batch(self, batch: List[Dict], **kwargs) -> List[Dict]:
+        """Analyze a batch of ETFs"""
         if not batch:
             return []
         
-        # Get raw data
-        data = self.data_skill.execute(batch, days=30)
-        if not data:
-            return []
-        
-        # Build batch data - only raw OHLCV
         batch_data = []
-        for symbol, df in data.items():
-            summary = self.data_skill.get_summary(df, days=20)
-            batch_data.append(f"{symbol}|{summary}")
+        for item in batch:
+            symbol = item.get('symbol', '')
+            full_data = item.get('full_data', '')
+            if full_data:
+                batch_data.append(f"{symbol}|{full_data}")
+        
+        if not batch_data:
+            return []
         
         data_text = "\n".join(batch_data)
         
         prompt = f"""You are an experienced quantitative analyst. Please analyze the raw OHLCV data of the following {len(batch_data)} ETFs.
 
 Data format: Symbol|YYYY-MM-DD|O|H|L|C|V
-Legend: O=Open, H=High, L=Low, C=Close, V=Volume
 
 Data:
 {data_text}
-
-Tasks:
-1. Calculate technical indicators from raw data (MA5, MA20, MA60, RSI, MACD, etc.)
-2. Design your own scoring system (trend, momentum, technical signals, etc.)
-3. Give each ETF a comprehensive score (0-100)
-4. Provide signal (buy/hold/sell)
 
 Output JSON:
 {{
@@ -176,12 +262,7 @@ Output JSON:
         ]
     }},
     "scores": [
-        {{
-            "symbol": "Symbol",
-            "score": Score,
-            "signal": "buy/hold/sell",
-            "reason": "Reason"
-        }}
+        {{"symbol": "Symbol", "score": Score, "signal": "buy/hold/sell", "reason": "Reason"}}
     ]
 }}"""
 
@@ -212,14 +293,18 @@ Output JSON:
             return data.get('scores', [])
         return []
     
-    def _fallback(self, batch: List[str], **kwargs) -> List[Dict]:
+    def _fallback(self, batch: List[Dict], **kwargs) -> List[Dict]:
         """Fallback analysis - simple rules"""
         results = []
-        data = self.data_skill.execute(batch, days=30)
-        
-        for symbol, df in data.items():
+        for item in batch:
+            symbol = item.get('symbol', '')
+            # 尝试从缓存获取数据
+            data = self.data_loader.load_data(symbol, 30)
+            if data is None or data.empty:
+                continue
+            
             try:
-                close = df['close']
+                close = data['close']
                 current = close.iloc[-1]
                 ma20 = close.rolling(20).mean().iloc[-1] if len(close) >= 20 else current
                 change = (close.iloc[-1] / close.iloc[-5] - 1) if len(close) >= 5 else 0
@@ -245,50 +330,50 @@ Output JSON:
         
         return results
     
-    def execute(self, symbols: List[str], keep_count: int = 700) -> List[Dict]:
-        """
-        Batch analyze ETFs - ensure enough quantity for next stage
-        """
+    def execute(self, symbols: List[str], keep_count: int = 700, **kwargs) -> List[Dict]:
+        """Batch analyze ETFs"""
         if not symbols:
             print("   ⚠️ No symbols to analyze")
             return []
         
-        # Call parent execute
-        results = super().execute(symbols, keep_count)
+        # 设置数据加载参数
+        kwargs['data_days'] = 30
         
-        # Check result count, if too few, use fallback to supplement
+        # 调用父类流式处理
+        results = super().execute(symbols, keep_count, **kwargs)
+        
+        # 检查结果数量
         if len(results) < self.MIN_KEEP_COUNT:
-            print(f"   ⚠️ LLM analysis results insufficient ({len(results)} < {self.MIN_KEEP_COUNT}), using rule engine to supplement...")
+            print(f"   ⚠️ LLM analysis results insufficient ({len(results)} < {self.MIN_KEEP_COUNT}), using fallback...")
             
-            # Get all symbols with data
-            data = self.data_skill.execute(symbols, days=30)
-            available_symbols = list(data.keys())
+            # 获取所有已加载的数据
+            all_loaded = self.get_all_loaded_data()
+            available_symbols = list(all_loaded.keys())
             
             if available_symbols:
-                # Supplement from remaining symbols
                 existing_symbols = {r.get('symbol') for r in results}
                 remaining = [s for s in available_symbols if s not in existing_symbols]
-                
                 if remaining:
-                    fallback_results = self._fallback(remaining[:keep_count])
+                    fallback_items = [{'symbol': s} for s in remaining[:keep_count]]
+                    fallback_results = self._fallback(fallback_items)
                     results.extend(fallback_results)
-                    print(f"   ✅ Added {len(fallback_results)} rule engine scoring results")
+                    print(f"   ✅ Added {len(fallback_results)} fallback results")
         
-        # Sort by score
         results.sort(key=lambda x: x.get('score', 0), reverse=True)
-        
-        # Ensure returned count doesn't exceed keep_count
         final_results = results[:keep_count]
         print(f"   ✅ Final retained {len(final_results)} candidates")
+        
+        # 清理缓存
+        self.data_loader.clear_cache()
+        self.clear_cache()
         
         return final_results
 
 
 class ETFRankingSkill(BaseBatchSkill):
     """
-    Skill: ETF Fine Ranking
-    Function: Fine comparison and ranking of candidate ETFs (Stage 2)
-    Based on Stage 1 LLM scoring results, with reference to raw data
+    Skill: ETF Fine Ranking (Stage 2)
+    Function: Fine comparison and ranking of candidate ETFs
     """
     
     def __init__(self):
@@ -301,34 +386,48 @@ class ETFRankingSkill(BaseBatchSkill):
             output_tokens=400,
             safety_margin=0.75
         )
-        self.data_skill = ETFDataSkill()
+        self.data_loader = ETFDataLoader()
         self.MIN_KEEP_COUNT = 10
     
-    def _preprocess(self, candidates: List[Dict], **kwargs) -> List[Dict]:
-        """Enrich with full data for ranking"""
-        enriched = []
-        symbols_to_fetch = [item.get('symbol') for item in candidates if item.get('symbol')]
-        
-        if not symbols_to_fetch:
-            return []
-        
-        # Batch get data
-        data_map = self.data_skill.execute(symbols_to_fetch, days=60)
-        
-        for item in candidates:
-            symbol = item.get('symbol')
-            if not symbol:
-                continue
+    def _get_base_prompt(self) -> str:
+        return """
+Please perform fine comparative ranking of the following ETFs.
+
+Data format: Symbol|Init Score|Signal|YYYY-MM-DD|O|H|L|C|V
+
+Task: Based on raw OHLCV data and initial scores, re-evaluate the relative strength.
+
+Output JSON: {"rankings": [{"symbol": "Symbol", "rank_score": Score, "signal": "buy/hold/sell", "reason": "Reason"}]}"""
+    
+    def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
+        """加载单个ETF数据"""
+        days = kwargs.get('data_days', 60)
+        return self.data_loader.load_data(symbol, days)
+    
+    def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
+        """获取单个项目的prompt片段"""
+        if isinstance(item, dict):
+            symbol = item.get('symbol', '')
+            score = item.get('score', 0)
+            signal = item.get('signal', 'hold')
+            days = kwargs.get('summary_days', 60)
             
-            df = data_map.get(symbol)
-            if df is not None and not df.empty:
-                item['full_data'] = self.data_skill.get_summary(df, days=60)
-                enriched.append(item)
+            if isinstance(data, pd.DataFrame):
+                summary = self.data_loader.get_summary(data, days)
             else:
-                item['full_data'] = ''
-                enriched.append(item)
-        
-        return enriched
+                summary = ''
+            
+            return f"{symbol}|Init:{score}|Signal:{signal}|{summary}"
+        return str(item)
+    
+    def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
+        """从数据创建item"""
+        if isinstance(data, pd.DataFrame):
+            return {
+                'symbol': symbol,
+                'full_data': self.data_loader.get_summary(data, 60)
+            }
+        return {'symbol': symbol}
     
     def _process_batch(self, batch: List[Dict], **kwargs) -> List[Dict]:
         """Rank a batch of candidates"""
@@ -344,15 +443,14 @@ class ETFRankingSkill(BaseBatchSkill):
             else:
                 data_text.append(f"{symbol}|Init:{score}|Signal:{signal}|No data")
         
+        if not data_text:
+            return []
+        
         prompt = f"""
 Please perform fine comparative ranking of the following {len(batch)} ETFs.
 
-Data format: Symbol|Init Score|Signal|YYYY-MM-DD|O|H|L|C|V
-
 Data:
 {chr(10).join(data_text)}
-
-Task: Based on raw OHLCV data and initial scores, re-evaluate the relative strength of each ETF, give refined scores (0-100).
 
 Output JSON:
 {{
@@ -380,48 +478,47 @@ Output JSON:
         """Fallback ranking - keep original order"""
         return batch
     
-    def execute(self, candidates: List[Dict], keep_count: int = 100) -> List[Dict]:
-        """
-        Fine ranking - ensure enough quantity for next stage
-        """
+    def execute(self, candidates: List[Dict], keep_count: int = 100, **kwargs) -> List[Dict]:
+        """Execute ranking"""
         if not candidates:
             print("   ⚠️ No candidates to rank")
             return []
         
-        # Call parent execute
-        results = super().execute(candidates, keep_count)
+        # 设置数据加载参数
+        kwargs['data_days'] = 60
+        kwargs['summary_days'] = 60
         
-        # Check result count
+        # 调用父类流式处理
+        results = super().execute(candidates, keep_count, **kwargs)
+        
+        # 检查结果数量
         if len(results) < self.MIN_KEEP_COUNT:
-            print(f"   ⚠️ LLM ranking results insufficient ({len(results)} < {self.MIN_KEEP_COUNT}), using fallback...")
-            
+            print(f"   ⚠️ Insufficient results ({len(results)}), using fallback...")
             existing_symbols = {r.get('symbol') for r in results}
             remaining = [c for c in candidates if c.get('symbol') not in existing_symbols]
-            
             if remaining:
                 remaining.sort(key=lambda x: x.get('score', 0), reverse=True)
                 needed = keep_count - len(results)
-                fallback_results = remaining[:needed]
-                
-                for item in fallback_results:
+                for item in remaining[:needed]:
                     item['rank_score'] = item.get('score', 0)
-                
-                results.extend(fallback_results)
-                print(f"   ✅ Added {len(fallback_results)} fallback ranking results")
+                    results.append(item)
+                print(f"   ✅ Added {len(remaining[:needed])} fallback results")
         
-        # Sort by rank_score
         results.sort(key=lambda x: x.get('rank_score', 0), reverse=True)
-        
         final_results = results[:keep_count]
         print(f"   ✅ Final retained {len(final_results)} candidates")
+        
+        # 清理缓存
+        self.data_loader.clear_cache()
+        self.clear_cache()
         
         return final_results
 
 
 class ETFDeepAnalyzeSkill(BaseBatchSkill):
     """
-    Skill: ETF Deep Analysis
-    Function: Deep analysis of final candidates (Stage 3)
+    Skill: ETF Deep Analysis (Stage 3)
+    Function: Deep analysis of final candidates
     Only provide raw OHLCV data, all analysis done by LLM
     """
     
@@ -435,16 +532,65 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
             output_tokens=600,
             safety_margin=0.75
         )
-        self.data_skill = ETFDataSkill()
+        self.data_loader = ETFDataLoader()
         self.MIN_KEEP_COUNT = 1
     
-    def _preprocess(self, candidates: List[Dict], **kwargs) -> List[Dict]:
-        max_items = kwargs.get('max_items', 50)
-        sorted_candidates = sorted(candidates, key=lambda x: x.get('rank_score', 0), reverse=True)
-        return sorted_candidates[:max_items]
+    def _get_base_prompt(self) -> str:
+        return """
+# Task
+Perform deep technical analysis on ETF.
+
+# Raw OHLCV Data
+Format: YYYY-MM-DD|O|H|L|C|V
+
+# Analysis Requirements
+Please calculate indicators from raw data:
+1. Moving Average System (MA5, MA20, MA60)
+2. RSI (14-day)
+3. MACD
+4. Bollinger Bands
+5. Price-Volume Relationship
+6. Trend Analysis
+7. Support and Resistance Levels
+8. Candlestick Patterns
+
+# Output JSON
+{
+    "deep_score": 0-100 Score,
+    "recommendation": "buy/hold/sell",
+    "signal": "Specific suggestion",
+    "confidence": 0.0-1.0,
+    "risk_level": "low/medium/high",
+    "analysis": "Detailed analysis",
+    "target_price": Target price,
+    "stop_loss": Stop loss price
+}"""
+    
+    def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
+        """加载单个ETF数据"""
+        days = kwargs.get('data_days', 60)
+        return self.data_loader.load_data(symbol, days)
+    
+    def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
+        """获取单个项目的prompt片段"""
+        if isinstance(item, dict):
+            symbol = item.get('symbol', '')
+            if isinstance(data, pd.DataFrame):
+                summary = self.data_loader.get_summary(data, days=30)
+                return f"{symbol}|{summary}"
+        return str(item)
+    
+    def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
+        """从数据创建item"""
+        if isinstance(data, pd.DataFrame):
+            return {
+                'symbol': symbol,
+                'full_data': self.data_loader.get_summary(data, 30)
+            }
+        return {'symbol': symbol}
     
     def _process_batch(self, batch: List[Dict], **kwargs) -> List[Dict]:
-        """Deep analysis of single ETF - only provide raw data"""
+        """Deep analysis of single ETF"""
         if not batch:
             return []
         
@@ -455,13 +601,10 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
         
         print(f"     Deep analyzing {symbol}...")
         
-        # Get raw data (no indicators calculated)
-        df = self.data_skill.execute([symbol], days=60).get(symbol)
-        if df is None or df.empty:
-            print(f"     ⚠️ Cannot get raw data for {symbol}")
+        full_data = item.get('full_data', '')
+        if not full_data:
+            print(f"     ⚠️ No data for {symbol}")
             return []
-        
-        data_str = self.data_skill.get_summary(df, days=30)
         
         prompt = f"""
 # Task
@@ -470,18 +613,7 @@ Perform deep technical analysis on {symbol}.
 # Raw OHLCV Data
 Format: YYYY-MM-DD|O|H|L|C|V
 
-{data_str}
-
-# Analysis Requirements
-Please calculate the following indicators from raw data:
-1. Moving Average System (MA5, MA20, MA60)
-2. RSI (14-day)
-3. MACD
-4. Bollinger Bands
-5. Price-Volume Relationship
-6. Trend Analysis
-7. Support and Resistance Levels
-8. Candlestick Patterns
+{full_data}
 
 # Output JSON
 {{
@@ -521,6 +653,7 @@ Please calculate the following indicators from raw data:
         return []
     
     def _fallback(self, batch: List[Dict], **kwargs) -> List[Dict]:
+        """Fallback analysis"""
         results = []
         for item in batch:
             symbol = item.get('symbol')
@@ -545,54 +678,37 @@ Please calculate the following indicators from raw data:
         return results
     
     def execute(self, items: List[Dict], top_k: int = 3, **kwargs) -> List[Dict]:
-        """
-        Deep analysis - ensure at least top_k results returned
-        """
+        """Execute deep analysis"""
         if not items:
             print("   ⚠️ No items for deep analysis")
             return []
         
         total = min(len(items), kwargs.get('max_items', 50))
         print(f"   📊 Starting deep analysis of {total} ETFs...")
-        start_time = time.time()
         
-        results = []
-        failed_symbols = []
+        # 设置数据加载参数
+        kwargs['data_days'] = 60
+        kwargs['summary_days'] = 30
         
-        with tqdm(total=total, desc="Deep Analysis", unit="stocks") as pbar:
-            for item in items[:total]:
-                symbol = item.get('symbol')
-                batch_result = self._process_batch([item], **kwargs)
-                if batch_result:
-                    results.extend(batch_result)
-                else:
-                    if symbol:
-                        failed_symbols.append(symbol)
-                pbar.update(1)
+        # 调用父类流式处理
+        results = super().execute(items[:total], None, **kwargs)
         
-        if len(results) < top_k and failed_symbols:
-            print(f"   ⚠️ Successfully analyzed {len(results)}, failed {len(failed_symbols)}, using fallback...")
-            
-            fallback_items = [item for item in items if item.get('symbol') in failed_symbols[:top_k * 2]]
-            if fallback_items:
-                fallback_results = self._fallback(fallback_items)
-                results.extend(fallback_results)
-                print(f"   ✅ Added {len(fallback_results)} fallback analysis results")
-        
-        results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
-        
-        elapsed = time.time() - start_time
-        print(f"      ✅ Completed, time used {elapsed:.2f}s")
-        
-        final_results = results[:top_k * 3]
-        if len(final_results) < top_k:
-            print(f"   ⚠️ Insufficient results ({len(final_results)} < {top_k}), trying to get more...")
+        # 如果没有结果，使用降级
+        if len(results) < top_k:
+            print(f"   ⚠️ Insufficient results ({len(results)} < {top_k}), using fallback...")
             remaining = [item for item in items[:total] if item.get('symbol') not in {r.get('symbol') for r in results}]
             if remaining:
-                extra_fallback = self._fallback(remaining[:top_k * 2])
-                results.extend(extra_fallback)
-                results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
-                final_results = results[:top_k * 3]
+                fallback_results = self._fallback(remaining[:top_k * 2])
+                results.extend(fallback_results)
+                print(f"   ✅ Added {len(fallback_results)} fallback results")
+        
+        results.sort(key=lambda x: x.get('final_score', 0), reverse=True)
+        final_results = results[:top_k * 3]
         
         print(f"   ✅ Final returned {len(final_results)} deep analysis results")
+        
+        # 清理缓存
+        self.data_loader.clear_cache()
+        self.clear_cache()
+        
         return final_results
