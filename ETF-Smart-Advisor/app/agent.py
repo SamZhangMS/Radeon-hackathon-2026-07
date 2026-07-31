@@ -351,12 +351,11 @@ class ETFAdvisorAgent:
             print(f"get_recommendation_sync error. Exception:{e}\nTrackback:{format_exception(e)}")
             return {"success": False, "error": str(e)}
     
-    async def get_top_recommendations_v2(self,force_update: bool = False):
+    def get_top_recommendations_v2(self,force_update: bool = False):
         """获取Top推荐 - Skill-based版本"""
         try:
             result = self.advisor2.get_top_recommendations_v2(force_update=force_update)
-            
-            
+
             return {
                 "status": "success",
                 "data": result,
