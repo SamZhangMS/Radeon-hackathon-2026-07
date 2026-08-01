@@ -64,6 +64,13 @@ class MilvusConnection:
         self.milvus_data_dir = BASE_DIR / "milvus_data.db"
         self.milvus_data_dir.parent.mkdir(parents=True, exist_ok=True)
         
+        if not self.milvus_data_dir.exists():
+            self.milvus_data_dir.touch()
+            
+        self.milvus_data_path = str(self.milvus_data_dir.absolute())
+        
+        logger.info(f"📁 Milvus 数据目录: {self.milvus_data_path}")
+        
         # 尝试启动 Milvus Lite
         if MILVUS_CONFIG.get("enabled", True) and PYMILVUS_AVAILABLE:
             self._init_milvus_lite()
@@ -81,7 +88,12 @@ class MilvusConnection:
             return
         
         try:
-            uri = f"file:{str(self.milvus_data_dir)}"
+            # ✅ 修复：使用正确的 URI 格式
+            # Milvus Lite 要求 file: 前缀加绝对路径
+            uri = f"file:{self.milvus_data_path}"
+            
+            logger.info(f"🔗 连接 Milvus Lite: {uri}")
+            
             self._client = PyMilvusClient(
                 uri=uri,
                 timeout=60,
@@ -91,8 +103,18 @@ class MilvusConnection:
                     'keepalive_permit_without_calls': True,
                 }
             )
-            logger.info(f"✅ Milvus Lite 已连接: {uri}")
-            self._memory_mode = False
+            
+            # ✅ 测试连接
+            try:
+                # 尝试获取版本信息或执行简单操作来验证连接
+                self._client.get_collection_stats("dummy")
+                logger.info(f"✅ Milvus Lite 已连接: {uri}")
+                self._memory_mode = False
+            except Exception as e:
+                logger.warning(f"⚠️ Milvus Lite 连接测试失败: {e}")
+                self._memory_mode = True
+                self._client = None
+            
         except Exception as e:
             logger.warning(f"⚠️ Milvus 初始化失败: {e}")
             self._memory_mode = True
@@ -298,6 +320,9 @@ class KnowledgeManager(BaseCollectionManager):
     
     def _create_schema(self):
         """创建知识库 Schema"""
+        if self.connection._client is None:
+            return None
+        
         schema = self.connection._client.create_schema(
             auto_id=False,
             enable_dynamic_field=True
@@ -313,6 +338,9 @@ class KnowledgeManager(BaseCollectionManager):
     
     def _create_index_params(self):
         """创建索引参数"""
+        if self.connection._client is None:
+            return None
+        
         index_params = self.connection._client.prepare_index_params()
         index_params.add_index(
             field_name="embedding",
@@ -543,7 +571,27 @@ class KnowledgeManager(BaseCollectionManager):
         
         return True
 
-
+    def delete_by_id(self, item_id: str) -> bool:
+        """删除知识"""
+        if self.connection._is_available():
+            self.connection._delete_data(self.collection_name, f'id == "{item_id}"')
+        
+        self._knowledge_cache = [item for item in self._knowledge_cache if item['id'] != item_id]
+        
+        if self.connection._memory_mode:
+            self._build_memory_index()
+        
+        return True
+    
+    def delete_all(self) -> bool:
+        """清空所有知识"""
+        if self.connection._is_available():
+            self.connection._delete_data(self.collection_name, "id is not None")
+        
+        self._knowledge_cache = []
+        self._memory_embeddings = None
+        
+        return True
 # ============================================================
 # 2. 推荐缓存管理器（Recommendation）
 # ============================================================
@@ -557,6 +605,9 @@ class RecommendationCacheManager(BaseCollectionManager):
     
     def _create_schema(self):
         """创建推荐缓存 Schema"""
+        if self.connection._client is None:
+            return None
+
         schema = self.connection._client.create_schema(
             auto_id=True,
             enable_dynamic_field=True
@@ -572,6 +623,9 @@ class RecommendationCacheManager(BaseCollectionManager):
     
     def _create_index_params(self):
         """创建索引参数"""
+        if self.connection._client is None:
+            return None
+        
         index_params = self.connection._client.prepare_index_params()
         index_params.add_index(field_name="symbol", index_type="INVERTED")
         index_params.add_index(field_name="analysis_type", index_type="INVERTED")
@@ -637,6 +691,9 @@ class FeedbackManager(BaseCollectionManager):
     
     def _create_schema(self):
         """创建反馈 Schema"""
+        if self.connection._client is None:
+            return None
+        
         schema = self.connection._client.create_schema(
             auto_id=True,
             enable_dynamic_field=True
@@ -654,6 +711,8 @@ class FeedbackManager(BaseCollectionManager):
     
     def _create_index_params(self):
         """创建索引参数"""
+        if self.connection._client is None:
+            return None
         index_params = self.connection._client.prepare_index_params()
         index_params.add_index(field_name="symbol", index_type="INVERTED")
         index_params.add_index(field_name="timestamp", index_type="INVERTED")
