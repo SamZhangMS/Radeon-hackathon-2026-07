@@ -730,6 +730,7 @@ class MilvusClient:
         logger.info("✅ Milvus 客户端初始化完成")
         logger.info(f"   📚 Collections: knowledge, recommendation, feedback")
     
+    
     def get_stats(self) -> Dict:
         """获取所有 Collection 的统计信息"""
         return {
