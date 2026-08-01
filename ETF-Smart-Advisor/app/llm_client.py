@@ -397,22 +397,21 @@ class LLMClient:
                 if result.get('success'):
                     return result.get('response', '')
                 
-            # 2026/7/31 remove vLLM fallback temporarily
-            #     logger.warning(f"vLLM 失败，降级到 Transformers: {result.get('error')}")
+                logger.warning(f"vLLM 失败，降级到 Transformers: {result.get('error')}")
             
-            # # ✅ 降级到 Transformers（已启用）
-            # result = self._transformers_generate(
-            #     messages=messages,
-            #     max_new_tokens=safe_max_tokens,
-            #     temperature=temperature,
-            #     top_p=top_p,
-            #     **kwargs
-            # )
+            # ✅ 降级到 Transformers（已启用）
+            result = self._transformers_generate(
+                messages=messages,
+                max_new_tokens=safe_max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                **kwargs
+            )
             
-            # if result.get('success'):
-            #     return result.get('response', '')
-            # else:
-            #     return f"生成失败: {result.get('error', '未知错误')}"
+            if result.get('success'):
+                return result.get('response', '')
+            else:
+                return f"生成失败: {result.get('error', '未知错误')}"
                 
         finally:
             if enable_thinking is not None:
