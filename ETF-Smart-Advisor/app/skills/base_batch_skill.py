@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from abc import abstractmethod
 from datetime import datetime
+import pandas as pd
 
 from .base_skill import BaseSkill
 from ..llm_client import get_llm_client
@@ -85,16 +86,33 @@ class BaseBatchSkill(BaseSkill):
         self._keep_symbols = set()  # 需要保留的symbol集合
         
         # ✅ Milvus 缓存
+        self._milvus = None
+        self._cache_collection = "etf_analysis_cache"
         if self.enable_cache:
-            self._milvus = get_milvus_client()
-            self._cache_collection = "etf_analysis_cache"
-            self._ensure_cache_collection()
+            try:
+                self._milvus = get_milvus_client()
+                # 检查 Milvus 是否可用
+                if self._milvus and hasattr(self._milvus, '_client') and self._milvus._client is not None:
+                    self._ensure_cache_collection()
+                else:
+                    print(f"   ⚠️ Milvus client not available, cache disabled")
+                    self.enable_cache = False
+            except Exception as e:
+                print(f"   ⚠️ Milvus init failed: {e}, cache disabled")
+                self.enable_cache = False
+                self._milvus = None
     
     def _ensure_cache_collection(self):
         """确保 Milvus 缓存集合存在"""
-        if not self.enable_cache:
+        if not self.enable_cache or self._milvus is None:
             return
         try:
+            # ✅ 安全检查：确保 _client 存在
+            if not hasattr(self._milvus, '_client') or self._milvus._client is None:
+                print(f"   ⚠️ Milvus client not available")
+                self.enable_cache = False
+                return
+            
             if not self._milvus._client.has_collection(self._cache_collection):
                 schema = self._milvus._client.create_schema(
                     auto_id=True,
@@ -122,6 +140,14 @@ class BaseBatchSkill(BaseSkill):
             print(f"   ⚠️ Milvus cache not available: {e}")
             self.enable_cache = False
     
+    def _is_milvus_available(self) -> bool:
+        """检查 Milvus 是否可用"""
+        return (self.enable_cache and 
+                self._milvus is not None and 
+                hasattr(self._milvus, '_client') and 
+                self._milvus._client is not None and
+                self._milvus._client.has_collection(self._cache_collection))
+   
     # ============================================================
     # Milvus 缓存方法
     # ============================================================
@@ -132,11 +158,9 @@ class BaseBatchSkill(BaseSkill):
     
     def _get_cached_result(self, symbol: str) -> Optional[Dict]:
         """从 Milvus 获取缓存结果"""
-        if not self.enable_cache:
+        if not self._is_milvus_available():
             return None
         try:
-            if not self._milvus._client.has_collection(self._cache_collection):
-                return None
             cache_type = self._get_cache_key()
             expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
             results = self._milvus._client.search(
@@ -151,16 +175,14 @@ class BaseBatchSkill(BaseSkill):
                     "result": results[0]["result"]
                 }
         except Exception as e:
-            print(f"      ⚠️ Failed to get cache for {symbol}: {e}")
-        return None
-    
+            # 静默失败，不影响主流程
+            pass
+        return None    
     def _save_cached_result(self, symbol: str, latest_date: str, result: Dict):
         """保存结果到 Milvus"""
-        if not self.enable_cache:
+        if not self._is_milvus_available():
             return
         try:
-            if not self._milvus._client.has_collection(self._cache_collection):
-                return
             cache_type = self._get_cache_key()
             now = datetime.now().isoformat()
             expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
@@ -193,11 +215,12 @@ class BaseBatchSkill(BaseSkill):
                     }]
                 )
         except Exception as e:
-            print(f"      ⚠️ Failed to save cache for {symbol}: {e}")
+            # 静默失败，不影响主流程
+            pass
     
     def _clear_cache(self, symbol: Optional[str] = None):
         """清除缓存"""
-        if not self.enable_cache:
+        if not self._is_milvus_available():
             return
         try:
             cache_type = self._get_cache_key()
@@ -210,7 +233,7 @@ class BaseBatchSkill(BaseSkill):
                 expr=expr
             )
         except Exception as e:
-            print(f"      ⚠️ Failed to clear cache: {e}")
+            pass
     
     # ============================================================
     # 缓存检查与处理
@@ -221,7 +244,7 @@ class BaseBatchSkill(BaseSkill):
         检查单个项目的缓存
         返回: (缓存结果, 是否命中)
         """
-        if not self.enable_cache:
+        if not self._is_milvus_available():
             return None, False
         
         # 获取数据最新日期
@@ -239,7 +262,7 @@ class BaseBatchSkill(BaseSkill):
     def _get_data_latest_date(self, data: Any) -> Optional[str]:
         """获取数据的最新日期，子类可重写"""
         try:
-            import pandas as pd
+            
             if isinstance(data, pd.DataFrame) and not data.empty:
                 if 'date' in data.columns:
                     return data['date'].iloc[-1].strftime('%Y-%m-%d')
@@ -274,16 +297,13 @@ class BaseBatchSkill(BaseSkill):
             if data is None:
                 data = self._load_item_data(symbol, **kwargs)
                 if data is not None:
-                    # 临时保存
                     with self._cache_lock:
                         self._data_cache[symbol] = data
             
             # 检查缓存
             if cache_check_func:
-                # 使用自定义检查函数
                 result, hit = cache_check_func(item, data)
             else:
-                # 使用默认检查
                 result, hit = self._check_cache_for_item(symbol, data)
             
             if hit and result:
@@ -324,38 +344,32 @@ class BaseBatchSkill(BaseSkill):
     def _streaming_process(
         self, 
         items: List[Any], 
-        data_loader: Callable,  # 加载数据的函数
+        data_loader: Callable,
         **kwargs
     ) -> List[Dict]:
         """
         流式处理：边加载边生成prompt，达到限制时立即处理
-        ✅ 每批处理完成后，立即记录选中的基金
         """
         all_results = []
-        all_loaded_data = {}  # 本地存储所有加载的数据
-        selected_symbols = set()  # ✅ 记录所有被选中的基金
+        all_loaded_data = {}
+        selected_symbols = set()
         
-        # 1. 获取基础prompt用于token计算
         base_prompt = self._get_base_prompt()
         base_tokens = self._count_tokens(base_prompt)
         
-        # 2. 初始化当前批次
         current_batch = []
-        current_data = {}  # symbol -> data
+        current_data = {}
         current_tokens = base_tokens + self.output_tokens
         
-        # 3. 分批处理进度条
         total_items = len(items)
         
         with tqdm(total=total_items, desc="Streaming processing", unit="items") as pbar:
             for item in items:
-                # 加载数据
                 symbol = self._get_symbol(item)
                 if not symbol:
                     pbar.update(1)
                     continue
                 
-                # 检查缓存
                 if symbol in self._data_cache:
                     data = self._data_cache[symbol]
                 else:
@@ -363,33 +377,25 @@ class BaseBatchSkill(BaseSkill):
                     if data is None:
                         pbar.update(1)
                         continue
-                    # 缓存数据
                     with self._cache_lock:
                         if len(self._data_cache) < self._max_cache_size:
                             self._data_cache[symbol] = data
                 
-                # 保存所有加载的数据（用于后续过滤）
                 all_loaded_data[symbol] = data
                 
-                # 生成该项的prompt片段
                 item_str = self._get_item_data_str_for_item(item, data, **kwargs)
                 item_tokens = self._count_tokens(item_str)
                 
-                # 检查是否超出限制
                 if current_tokens + item_tokens > self.actual_limit:
-                    # ✅ 达到限制，处理当前批次
                     if current_batch:
                         batch_results, batch_selected = self._process_batch_with_data_and_return_selected(
                             current_batch, current_data, **kwargs
                         )
                         if batch_results:
                             all_results.extend(batch_results)
-                            # ✅ 记录本批选中的基金
                             selected_symbols.update(batch_selected)
-                            # ✅ 只保留选中基金的数据在缓存中
                             self._update_cache_with_selected(current_batch, batch_selected)
                     
-                    # 开始新批次
                     current_batch = [symbol]
                     current_data = {symbol: data}
                     current_tokens = base_tokens + self.output_tokens + item_tokens
@@ -400,7 +406,6 @@ class BaseBatchSkill(BaseSkill):
                 
                 pbar.update(1)
             
-            # 处理最后一批
             if current_batch:
                 batch_results, batch_selected = self._process_batch_with_data_and_return_selected(
                     current_batch, current_data, **kwargs
@@ -410,7 +415,6 @@ class BaseBatchSkill(BaseSkill):
                     selected_symbols.update(batch_selected)
                     self._update_cache_with_selected(current_batch, batch_selected)
         
-        # ✅ 根据所有选中的基金，过滤保存的数据
         self._all_loaded_data = {
             symbol: data for symbol, data in all_loaded_data.items()
             if symbol in selected_symbols
@@ -419,7 +423,6 @@ class BaseBatchSkill(BaseSkill):
         
         print(f"   📊 Selected {len(selected_symbols)} symbols, kept {len(self._all_loaded_data)} data items")
         
-        # 强制垃圾回收
         gc.collect()
         
         return all_results
@@ -430,12 +433,9 @@ class BaseBatchSkill(BaseSkill):
         batch_data: Dict[str, Any], 
         **kwargs
     ) -> tuple[List[Dict], Set[str]]:
-        """
-        使用已加载的数据处理批次，返回结果和选中的symbol集合
-        """
+        """使用已加载的数据处理批次，返回结果和选中的symbol集合"""
         selected_symbols = set()
         
-        # 构建批次数据
         batch_items = []
         for symbol in batch:
             data = batch_data.get(symbol)
@@ -447,10 +447,8 @@ class BaseBatchSkill(BaseSkill):
         if not batch_items:
             return [], set()
         
-        # ✅ 使用带缓存的批处理
         results = self._process_batch_with_cache(batch_items, **kwargs)
         
-        # ✅ 提取选中的symbol
         for r in results:
             symbol = r.get('symbol')
             if symbol:
@@ -459,16 +457,12 @@ class BaseBatchSkill(BaseSkill):
         return results, selected_symbols
     
     def _update_cache_with_selected(self, batch: List[str], selected_symbols: Set[str]):
-        """
-        更新缓存：只保留选中基金的数据
-        """
+        """更新缓存：只保留选中基金的数据"""
         with self._cache_lock:
             for sym in batch:
                 if sym not in selected_symbols:
-                    # ✅ 未选中的基金，从缓存中删除（释放内存）
                     if sym in self._data_cache:
                         del self._data_cache[sym]
-                # 选中的基金保留在缓存中
     
     def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
         """获取单个项目的prompt片段（子类可重写）"""
@@ -485,9 +479,7 @@ class BaseBatchSkill(BaseSkill):
         return results
     
     def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
-        """
-        从数据创建item（子类可重写）
-        """
+        """从数据创建item（子类可重写）"""
         if isinstance(data, dict):
             data['symbol'] = symbol
             return data
