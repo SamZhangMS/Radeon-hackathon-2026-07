@@ -208,15 +208,15 @@ if [ "$USE_VLLM" = true ]; then
     # 等待 vLLM 启动
     echo ""
     echo "⏳ Waiting for vLLM to be ready ..."
-    MAX_WAIT=450 # 120
+    MAX_WAIT=1200 # 120
     WAIT_COUNT=0
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
         if curl -s http://localhost:$VLLM_PORT/health > /dev/null 2>&1; then
             echo "  ✅ vLLM is ready (took ${WAIT_COUNT}s)"
             break
         fi
-        sleep 2
-        WAIT_COUNT=$((WAIT_COUNT + 2))
+        sleep 5
+        WAIT_COUNT=$((WAIT_COUNT + 5))
         echo -n "."
     done
     
