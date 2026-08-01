@@ -20,14 +20,14 @@ os.environ["OMP_NUM_THREADS"] = "1"
 # ============================================================
 # Qwen 模型配置 - 使用本地模型
 # ============================================================
+LLM_MODEL_NAME = "mapfinben-qwen35-9b-merged-unified-v3" # "mapfinben-qwen35-9b"
+LLM_MODEL_PATH = "./models/"+LLM_MODEL_NAME # "./models/Qwen/mapfinben-qwen35-9b"
+LLM_MODEL_ID = "Ljy2004/"+LLM_MODEL_NAME # “mapfinben-qwen35-9b-merged-unified-v3"
 
-# LLM_MODEL_PATH = "./models/Qwen/mapfinben-qwen35-9b"
-# LLM_MODEL_ID = "Ljy2004/mapfinben-qwen35-9b-merged-unified-v3"
-# LLM_MODEL_NAME = "mapfinben-qwen35-9b"
 
-LLM_MODEL_NAME = 'DeepSeek-R1-Distill-Qwen-1.5B' # "Qwen3.6-27B-GGUF"
-LLM_MODEL_PATH = "./models/"+LLM_MODEL_NAME
-LLM_MODEL_ID = "irelia11/"+LLM_MODEL_NAME
+# LLM_MODEL_NAME = 'DeepSeek-R1-Distill-Qwen-1.5B' # "Qwen3.6-27B-GGUF"
+# LLM_MODEL_PATH = "./models/"+LLM_MODEL_NAME
+# LLM_MODEL_ID = "irelia11/"+LLM_MODEL_NAME
 
 # VLLM配置（用于API模式）
 VLLM_API_KEY = os.environ.get("VLLM_API_KEY", "abc-123")
