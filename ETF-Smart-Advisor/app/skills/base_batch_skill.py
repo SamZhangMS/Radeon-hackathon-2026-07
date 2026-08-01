@@ -129,6 +129,73 @@ class BaseBatchSkill(BaseSkill):
         # 方法2: 简单估算（约 4 字符 = 1 token）
         return len(text) // 4 + 1
         
+    def _extract_json(self, response: str) -> Optional[Dict]:
+        """从响应中提取 JSON"""
+        if not response:
+            return None
+        try:
+            # 尝试找到 JSON 对象
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                return json.loads(json_match.group())
+        except:
+            pass
+        return None
+    
+    def _extract_json_array(self, response: str) -> Optional[List]:
+        """从响应中提取 JSON 数组"""
+        if not response:
+            return None
+        try:
+            # 尝试找到 JSON 数组
+            json_match = re.search(r'\[[\s\S]*\]', response)
+            if json_match:
+                return json.loads(json_match.group())
+        except:
+            pass
+        return None
+    
+    def _parse_json_response(self, response: str, key: str = None) -> Optional[Any]:
+        """
+        解析 JSON 响应，支持多种格式
+        - 如果是对象，返回对象
+        - 如果指定 key，返回该 key 的值
+        """
+        if not response:
+            return None
+        
+        # 清理响应
+        cleaned = response.strip()
+        
+        # 尝试解析
+        try:
+            data = json.loads(cleaned)
+            if key:
+                return data.get(key)
+            return data
+        except:
+            pass
+        
+        # 尝试提取 JSON
+        try:
+            data = self._extract_json(cleaned)
+            if data:
+                if key:
+                    return data.get(key)
+                return data
+        except:
+            pass
+        
+        # 尝试提取 JSON 数组
+        try:
+            data = self._extract_json_array(cleaned)
+            if data:
+                return data
+        except:
+            pass
+        
+        return None
+    
     def _ensure_cache_collection(self):
         """确保 Milvus 缓存集合存在"""
         if not self.enable_cache or self._milvus is None:
