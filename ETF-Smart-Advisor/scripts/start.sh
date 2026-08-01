@@ -162,23 +162,15 @@ check_port() {
         return 0
     fi
 }
-check_port $VLLM_PORT || echo "  💡 vLLM may fail if port $VLLM_PORT is occupied"
+
 check_port 7860 || echo "  💡 Web service may fail if port 7860 is occupied"
+check_port $VLLM_PORT || echo "  💡 vLLM may fail if port $VLLM_PORT is occupied"
 
 # 12. Check vLLM availability
 echo ""
-echo "🔍 Checking vLLM..."
-USE_VLLM=true # false
-# if [ "$VLLM_ENABLED" = true ] && python -c "import vllm" 2>/dev/null; then
-#     echo "  ✅ vLLM installed and enabled"
-#     USE_VLLM=true
-# elif [ "$VLLM_ENABLED" = true ]; then
-#     echo "  ⚠️ vLLM enabled in config but not installed"
-#     echo "  💡 Install with: pip install vllm"
-#     USE_VLLM=false
-# else
-#     echo "  ℹ️ vLLM disabled in config"
-# fi
+# echo "🔍 Checking vLLM..."
+USE_VLLM= false # 默认不使用 vLLM
+
 
 # 13. Start vLLM (if available and enabled)
 VLLM_PID=""

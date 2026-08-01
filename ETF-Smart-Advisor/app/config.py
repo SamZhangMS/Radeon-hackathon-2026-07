@@ -181,7 +181,7 @@ LLM_API_CONFIG = {
         "host": "localhost",
         "port": 8000,
         "served_model_name": LLM_MODEL_NAME,
-        "gpu_memory_utilization": 0.7,
+        "gpu_memory_utilization": 0.5,
         "max_num_seqs": 32,
         "dtype": "bfloat16",
         "quantization": None,
