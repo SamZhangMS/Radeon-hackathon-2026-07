@@ -492,6 +492,7 @@ class LLMClient:
         if self.use_vllm:
             try:
                 response = requests.get(f"{self.vllm_base_url}/health", timeout=2)
+                print(f"[get_model_status] vLLM 状态: {response.status_code}")
                 vllm_available = response.status_code == 200
             except:
                 vllm_available = False
