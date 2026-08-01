@@ -66,7 +66,7 @@ fi
 echo "  ✅ Model path: $MODEL_PATH"
 echo "  ✅ Model name: $MODEL_NAME"
 echo "  ✅ Model ID: $MODEL_ID"
-echo "  ✅ vLLM enabled: $VLLM_ENABLED"
+echo "  ✅ vLLM enabled in config: $VLLM_ENABLED"
 echo "  ✅ vLLM port: $VLLM_PORT"
 echo "  ✅ GPU memory: $VLLM_GPU_MEM"
 echo "  ✅ Max model len: $VLLM_MAX_MODEL_LEN"
@@ -166,11 +166,38 @@ check_port() {
 check_port 7860 || echo "  💡 Web service may fail if port 7860 is occupied"
 check_port $VLLM_PORT || echo "  💡 vLLM may fail if port $VLLM_PORT is occupied"
 
-# 12. Check vLLM availability
+# 12. Determine whether to use vLLM
 echo ""
-# echo "🔍 Checking vLLM..."
-USE_VLLM= false # 默认不使用 vLLM
+echo "🔍 Checking vLLM availability..."
 
+# 初始化USE_VLLM为false
+USE_VLLM=false
+
+# 只有在配置中启用且端口可用时才尝试vLLM
+if [ "$VLLM_ENABLED" = "True" ] || [ "$VLLM_ENABLED" = "true" ]; then
+    echo "  vLLM is enabled in config, checking availability..."
+    
+    # 检查vLLM是否安装
+    if python -c "import vllm" 2>/dev/null; then
+        echo "  ✅ vLLM package installed"
+        
+        # 检查端口是否可用
+        if ! lsof -i :$VLLM_PORT > /dev/null 2>&1; then
+            echo "  ✅ Port $VLLM_PORT is available"
+            USE_VLLM=true
+            echo "  ✅ vLLM will be used (if startup succeeds)"
+        else
+            echo "  ⚠️ Port $VLLM_PORT is occupied, cannot start vLLM"
+            echo "  💡 Will fallback to Transformers mode"
+        fi
+    else
+        echo "  ⚠️ vLLM package not installed"
+        echo "  💡 Will fallback to Transformers mode"
+    fi
+else
+    echo "  ℹ️ vLLM disabled in config"
+    echo "  💡 Using Transformers mode"
+fi
 
 # 13. Start vLLM (if available and enabled)
 VLLM_PID=""
@@ -199,38 +226,71 @@ if [ "$USE_VLLM" = true ]; then
     
     # 等待 vLLM 启动
     echo ""
-    echo "⏳ Waiting for vLLM to be ready ..."
-    MAX_WAIT=10 # 120
+    echo "⏳ Waiting for vLLM to be ready (timeout: 300s)..."
+    MAX_WAIT=10 # 300
     WAIT_COUNT=0
+    WAIT_INTERVAL=5
+    VLLM_READY=false
+    
     while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
-        if curl -s http://localhost:$VLLM_PORT/health > /dev/null 2>&1; then
-            echo "  ✅ vLLM is ready (took ${WAIT_COUNT}s)"
+        # 检查进程是否还在运行
+        if ! kill -0 $VLLM_PID 2>/dev/null; then
+            echo ""
+            echo "  ❌ vLLM process died unexpectedly"
+            echo "  --- Last 20 lines of vLLM log ---"
+            tail -20 vllm.log 2>/dev/null || echo "  No logs available"
+            echo "  ---------------------------------"
+            USE_VLLM=false
+            VLLM_PID=""
             break
         fi
-        sleep 5
-        WAIT_COUNT=$((WAIT_COUNT + 5))
+        
+        # 检查健康状态
+        if curl -s http://localhost:$VLLM_PORT/health > /dev/null 2>&1; then
+            echo ""
+            echo "  ✅ vLLM is ready (took ${WAIT_COUNT}s)"
+            VLLM_READY=true
+            break
+        fi
+        
+        sleep $WAIT_INTERVAL
+        WAIT_COUNT=$((WAIT_COUNT + WAIT_INTERVAL))
         echo -n "."
     done
     
-    if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+    # 如果vLLM未就绪，进行清理和fallback
+    if [ "$VLLM_READY" = false ] && [ "$USE_VLLM" = true ]; then
         echo ""
-        echo "  ⚠️ vLLM startup timeout, checking logs..."
-        tail -20 vllm.log 2>/dev/null || echo "  No logs available"
-        echo "  💡 Falling back to Transformers mode"
-        USE_VLLM=false
-        if [ -n "$VLLM_PID" ]; then
-            kill $VLLM_PID 2>/dev/null || true
+        if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
+            echo "  ⚠️ vLLM startup timeout after ${MAX_WAIT}s"
         fi
-    else
-        echo ""
-        echo "  ✅ vLLM service running successfully"
+        echo "  --- Last 20 lines of vLLM log ---"
+        tail -20 vllm.log 2>/dev/null || echo "  No logs available"
+        echo "  ---------------------------------"
+        echo "  💡 Falling back to Transformers mode"
+        
+        # 清理vLLM进程
+        if [ -n "$VLLM_PID" ]; then
+            echo "  Cleaning up vLLM process (PID: $VLLM_PID)..."
+            kill $VLLM_PID 2>/dev/null || true
+            sleep 2
+            # 强制杀死
+            kill -9 $VLLM_PID 2>/dev/null || true
+            VLLM_PID=""
+        fi
+        USE_VLLM=false
     fi
-else
-    echo ""
-    echo "ℹ️ Using Transformers mode (direct PyTorch ROCm)"
 fi
 
-# 14. Check LLM Client
+# 14. Final decision on inference mode
+echo ""
+if [ "$USE_VLLM" = true ]; then
+    echo "✅ Using vLLM for inference (high performance)"
+else
+    echo "✅ Using Transformers for inference (compatible mode)"
+fi
+
+# 15. Check LLM Client
 echo ""
 echo "🔍 Checking LLM Client..."
 python -c "
@@ -247,7 +307,7 @@ except Exception as e:
     print(f'  ⚠️ LLM Client: {e}')
 "
 
-# 15. Start application
+# 16. Start application
 echo ""
 echo "🚀 Starting ETF-Smart Advisor Web service..."
 echo "  📊 Web UI: http://localhost:7860"
@@ -269,7 +329,7 @@ export MODEL_ID=$MODEL_ID
 # 启动应用
 PYTHONPATH=. python -m app.main
 
-# 16. Cleanup
+# 17. Cleanup
 cleanup() {
     echo ""
     echo "🛑 Shutting down..."
@@ -287,6 +347,7 @@ print('  ✅ Milvus Lite stopped')
         echo "  Stopping vLLM (PID: $VLLM_PID)..."
         kill $VLLM_PID 2>/dev/null || true
         sleep 2
+        kill -9 $VLLM_PID 2>/dev/null || true
         echo "  ✅ vLLM stopped"
     fi
     echo "  ✅ Service stopped"
