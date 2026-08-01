@@ -272,12 +272,14 @@ Output JSON ONLY (no other text):
 }}"""
 
         try:
+            print(f'ETFAnalyzeSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
                 temperature=0.3,
                 enable_thinking=False
             )
+            print(f'ETFAnalyzeSkill._process_batch response: \n{response}')
             results = self._parse_response(response)
             return results if results else []
         except Exception as e:
