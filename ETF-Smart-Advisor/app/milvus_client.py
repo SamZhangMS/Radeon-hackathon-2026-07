@@ -90,7 +90,7 @@ class MilvusConnection:
         try:
             # ✅ 修复：使用正确的 URI 格式
             # Milvus Lite 要求 file: 前缀加绝对路径
-            uri = f"file:{self.milvus_data_path}"
+            uri = f"{self.milvus_data_path}"
             
             logger.info(f"🔗 连接 Milvus Lite: {uri}")
             
