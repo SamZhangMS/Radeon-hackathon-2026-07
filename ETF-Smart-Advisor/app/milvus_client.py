@@ -107,8 +107,11 @@ class MilvusConnection:
             # ✅ 测试连接
             try:
                 # 尝试获取版本信息或执行简单操作来验证连接
-                self._client.get_collection_stats("dummy")
-                logger.info(f"✅ Milvus Lite 已连接: {uri}")
+
+                collections = self._client.list_collections()
+                logger.info(f"✅ Milvus Lite 已连接，现有 {len(collections)} 个 collections")
+                if collections:
+                    logger.info(f"   Collections: {collections}")
                 self._memory_mode = False
             except Exception as e:
                 logger.warning(f"⚠️ Milvus Lite 连接测试失败: {e}")
