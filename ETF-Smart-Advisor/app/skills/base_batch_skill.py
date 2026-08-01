@@ -66,11 +66,7 @@ class BaseBatchSkill(BaseSkill):
         print(f"   📊 Actual limit: {self.actual_limit}")
         
         # Initialize tokenizer
-        try:
-            import tiktoken
-            self._token_counter = tiktoken.get_encoding("cl100k_base")
-        except:
-            self._token_counter = None
+        self._init_token_counter()
         
         self._lock = threading.Lock()
         self._results = []
@@ -101,7 +97,38 @@ class BaseBatchSkill(BaseSkill):
                 print(f"   ⚠️ Milvus init failed: {e}, cache disabled")
                 self.enable_cache = False
                 self._milvus = None
+
+    def _init_token_counter(self):
+        """初始化 token 计数器"""
+        self._token_counter = None
+        try:
+            import tiktoken
+            self._token_counter = tiktoken.get_encoding("cl100k_base")
+        except ImportError:
+            try:
+                from transformers import AutoTokenizer
+                self._token_counter = AutoTokenizer.from_pretrained("gpt2")
+            except:
+                pass
+        except:
+            pass
     
+    def _count_tokens(self, text: str) -> int:
+        """Count tokens in text - 使用多种方法"""
+        if not text:
+            return 0
+        
+        # 方法1: 使用 tiktoken
+        if self._token_counter is not None:
+            try:
+                if hasattr(self._token_counter, 'encode'):
+                    return len(self._token_counter.encode(text))
+            except:
+                pass
+        
+        # 方法2: 简单估算（约 4 字符 = 1 token）
+        return len(text) // 4 + 1
+        
     def _ensure_cache_collection(self):
         """确保 Milvus 缓存集合存在"""
         if not self.enable_cache or self._milvus is None:
