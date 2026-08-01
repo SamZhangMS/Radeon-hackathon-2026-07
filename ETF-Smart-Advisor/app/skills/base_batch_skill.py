@@ -1,4 +1,7 @@
-# app/skills/base_batch_skill.py - 修复数据保留逻辑
+# app/skills/base_batch_skill.py
+"""
+Base Batch Skill with Milvus caching support
+"""
 
 import threading
 import time
@@ -9,15 +12,18 @@ from typing import Dict, List, Any, Optional, Callable, Iterator, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from abc import abstractmethod
+from datetime import datetime
 
 from .base_skill import BaseSkill
 from ..llm_client import get_llm_client
 from ..config import LLM_API_CONFIG
+from ..milvus_client import get_milvus_client
+from pymilvus import DataType
 
 
 class BaseBatchSkill(BaseSkill):
     """
-    Batch processing skill base class with memory optimization
+    Batch processing skill base class with memory optimization and Milvus caching
     """
     
     def __init__(
@@ -28,7 +34,8 @@ class BaseBatchSkill(BaseSkill):
         max_workers: int = 4,
         timeout: int = 60,
         output_tokens: int = 400,
-        safety_margin: float = 0.75
+        safety_margin: float = 0.75,
+        enable_cache: bool = True  # ✅ 新增：是否启用缓存
     ):
         super().__init__(name, description)
         
@@ -38,6 +45,7 @@ class BaseBatchSkill(BaseSkill):
         self.timeout = timeout
         self.output_tokens = output_tokens
         self.safety_margin = safety_margin
+        self.enable_cache = enable_cache
         
         # ✅ 从 config 读取 max_model_len
         self.max_model_len = LLM_API_CONFIG.get("max_model_len", 65536)
@@ -75,34 +83,239 @@ class BaseBatchSkill(BaseSkill):
         # ✅ 存储所有加载的数据（用于后续过滤）
         self._all_loaded_data = {}
         self._keep_symbols = set()  # 需要保留的symbol集合
+        
+        # ✅ Milvus 缓存
+        if self.enable_cache:
+            self._milvus = get_milvus_client()
+            self._cache_collection = "etf_analysis_cache"
+            self._ensure_cache_collection()
     
-    def _count_tokens(self, text: str) -> int:
-        """Count tokens in text"""
-        if self._token_counter:
-            return len(self._token_counter.encode(text))
-        return len(text) // 2
-    
-    def _get_base_prompt(self) -> str:
-        """Get base prompt template (subclass can override)"""
-        return ""
-    
-    def _get_item_data_str(self, item: Any, **kwargs) -> str:
-        """Get item data string (subclass can override)"""
-        if isinstance(item, str):
-            return item
-        elif isinstance(item, dict):
-            return item.get('full_data', item.get('summary', str(item)))
-        return str(item)
-    
-    def _extract_json(self, response: str) -> Optional[Dict]:
-        """Extract JSON from response"""
+    def _ensure_cache_collection(self):
+        """确保 Milvus 缓存集合存在"""
+        if not self.enable_cache:
+            return
         try:
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                return json.loads(json_match.group())
+            if not self._milvus._client.has_collection(self._cache_collection):
+                schema = self._milvus._client.create_schema(
+                    auto_id=True,
+                    enable_dynamic_field=True
+                )
+                schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+                schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20)
+                schema.add_field(field_name="analysis_type", datatype=DataType.VARCHAR, max_length=50)
+                schema.add_field(field_name="latest_date", datatype=DataType.VARCHAR, max_length=20)
+                schema.add_field(field_name="result", datatype=DataType.JSON)
+                schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=30)
+                schema.add_field(field_name="updated_at", datatype=DataType.VARCHAR, max_length=30)
+                
+                index_params = self._milvus._client.prepare_index_params()
+                index_params.add_index(field_name="symbol", index_type="INVERTED")
+                index_params.add_index(field_name="analysis_type", index_type="INVERTED")
+                
+                self._milvus._client.create_collection(
+                    collection_name=self._cache_collection,
+                    schema=schema,
+                    index_params=index_params
+                )
+                print(f"   ✅ Created Milvus cache collection: {self._cache_collection}")
+        except Exception as e:
+            print(f"   ⚠️ Milvus cache not available: {e}")
+            self.enable_cache = False
+    
+    # ============================================================
+    # Milvus 缓存方法
+    # ============================================================
+    
+    def _get_cache_key(self) -> str:
+        """获取缓存类型标识，子类可重写"""
+        return self.name
+    
+    def _get_cached_result(self, symbol: str) -> Optional[Dict]:
+        """从 Milvus 获取缓存结果"""
+        if not self.enable_cache:
+            return None
+        try:
+            if not self._milvus._client.has_collection(self._cache_collection):
+                return None
+            cache_type = self._get_cache_key()
+            expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
+            results = self._milvus._client.search(
+                collection_name=self._cache_collection,
+                expr=expr,
+                output_fields=["latest_date", "result"],
+                limit=1
+            )
+            if results:
+                return {
+                    "latest_date": results[0]["latest_date"],
+                    "result": results[0]["result"]
+                }
+        except Exception as e:
+            print(f"      ⚠️ Failed to get cache for {symbol}: {e}")
+        return None
+    
+    def _save_cached_result(self, symbol: str, latest_date: str, result: Dict):
+        """保存结果到 Milvus"""
+        if not self.enable_cache:
+            return
+        try:
+            if not self._milvus._client.has_collection(self._cache_collection):
+                return
+            cache_type = self._get_cache_key()
+            now = datetime.now().isoformat()
+            expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
+            existing = self._milvus._client.search(
+                collection_name=self._cache_collection,
+                expr=expr,
+                output_fields=["id"],
+                limit=1
+            )
+            if existing:
+                self._milvus._client.update(
+                    collection_name=self._cache_collection,
+                    expr=expr,
+                    data={
+                        "latest_date": latest_date,
+                        "result": result,
+                        "updated_at": now
+                    }
+                )
+            else:
+                self._milvus._client.insert(
+                    collection_name=self._cache_collection,
+                    data=[{
+                        "symbol": symbol,
+                        "analysis_type": cache_type,
+                        "latest_date": latest_date,
+                        "result": result,
+                        "created_at": now,
+                        "updated_at": now
+                    }]
+                )
+        except Exception as e:
+            print(f"      ⚠️ Failed to save cache for {symbol}: {e}")
+    
+    def _clear_cache(self, symbol: Optional[str] = None):
+        """清除缓存"""
+        if not self.enable_cache:
+            return
+        try:
+            cache_type = self._get_cache_key()
+            if symbol:
+                expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
+            else:
+                expr = f'analysis_type == "{cache_type}"'
+            self._milvus._client.delete(
+                collection_name=self._cache_collection,
+                expr=expr
+            )
+        except Exception as e:
+            print(f"      ⚠️ Failed to clear cache: {e}")
+    
+    # ============================================================
+    # 缓存检查与处理
+    # ============================================================
+    
+    def _check_cache_for_item(self, symbol: str, data: Any) -> tuple[Optional[Dict], bool]:
+        """
+        检查单个项目的缓存
+        返回: (缓存结果, 是否命中)
+        """
+        if not self.enable_cache:
+            return None, False
+        
+        # 获取数据最新日期
+        latest_date = self._get_data_latest_date(data)
+        if not latest_date:
+            return None, False
+        
+        # 查询缓存
+        cached = self._get_cached_result(symbol)
+        if cached and cached.get("latest_date") == latest_date:
+            return cached.get("result"), True
+        
+        return None, False
+    
+    def _get_data_latest_date(self, data: Any) -> Optional[str]:
+        """获取数据的最新日期，子类可重写"""
+        try:
+            import pandas as pd
+            if isinstance(data, pd.DataFrame) and not data.empty:
+                if 'date' in data.columns:
+                    return data['date'].iloc[-1].strftime('%Y-%m-%d')
         except:
             pass
         return None
+    
+    def _process_batch_with_cache(
+        self, 
+        batch: List[Dict], 
+        cache_check_func: Optional[Callable] = None,
+        **kwargs
+    ) -> List[Dict]:
+        """
+        处理批次，自动处理缓存
+        cache_check_func: 可选的自定义缓存检查函数
+        """
+        if not batch:
+            return []
+        
+        # 分离需要分析的和可以从缓存获取的
+        to_analyze = []
+        cached_results = []
+        
+        for item in batch:
+            symbol = self._get_symbol(item)
+            if not symbol:
+                continue
+            
+            # 获取数据
+            data = self.get_loaded_data(symbol)
+            if data is None:
+                data = self._load_item_data(symbol, **kwargs)
+                if data is not None:
+                    # 临时保存
+                    with self._cache_lock:
+                        self._data_cache[symbol] = data
+            
+            # 检查缓存
+            if cache_check_func:
+                # 使用自定义检查函数
+                result, hit = cache_check_func(item, data)
+            else:
+                # 使用默认检查
+                result, hit = self._check_cache_for_item(symbol, data)
+            
+            if hit and result:
+                cached_results.append(result)
+                continue
+            
+            # 需要分析
+            item_data = self._create_item_from_data(symbol, data) if data is not None else item
+            if item_data:
+                to_analyze.append(item_data)
+        
+        # 如果全部命中缓存
+        if not to_analyze and cached_results:
+            print(f"      ✅ All {len(cached_results)} results from cache")
+            return cached_results
+        
+        # 分析需要处理的
+        if to_analyze:
+            results = self._process_batch(to_analyze, **kwargs)
+            if results:
+                # 保存到缓存
+                for r in results:
+                    symbol = r.get('symbol')
+                    if symbol:
+                        data = self.get_loaded_data(symbol)
+                        latest_date = self._get_data_latest_date(data)
+                        if latest_date:
+                            self._save_cached_result(symbol, latest_date, r)
+                results.extend(cached_results)
+                return results
+        
+        return cached_results
     
     # ============================================================
     # 流式数据处理核心
@@ -234,8 +447,8 @@ class BaseBatchSkill(BaseSkill):
         if not batch_items:
             return [], set()
         
-        # 调用_process_batch处理
-        results = self._process_batch(batch_items, **kwargs)
+        # ✅ 使用带缓存的批处理
+        results = self._process_batch_with_cache(batch_items, **kwargs)
         
         # ✅ 提取选中的symbol
         for r in results:

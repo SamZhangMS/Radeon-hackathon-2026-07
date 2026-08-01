@@ -37,15 +37,21 @@ class ETFDataLoader:
         try:
             df = self.fetcher.get_history(symbol, f"{days}d")
             if not df.empty:
-                # 限制缓存大小
                 if len(self._cache) >= self._max_cache_size:
-                    # 删除最早的条目
                     oldest_key = next(iter(self._cache))
                     del self._cache[oldest_key]
                 self._cache[cache_key] = df
                 return df
         except Exception as e:
             print(f"      ⚠️ Failed to load {symbol}: {e}")
+        return None
+    
+    def get_latest_date(self, df: pd.DataFrame) -> Optional[str]:
+        """获取数据的最新日期"""
+        if df is None or df.empty:
+            return None
+        if 'date' in df.columns:
+            return df['date'].iloc[-1].strftime('%Y-%m-%d')
         return None
     
     def get_summary(self, df: pd.DataFrame, days: int = 20) -> str:
@@ -74,14 +80,13 @@ class ETFDataLoader:
     def clear_cache(self):
         """清除缓存"""
         self._cache.clear()
+        import gc
         gc.collect()
 
 
+
 class ETFDataSkill(BaseSkill):
-    """
-    Skill: ETF Data Fetcher
-    Function: Get historical data for single or multiple ETFs
-    """
+    """Skill: ETF Data Fetcher"""
     
     def __init__(self):
         super().__init__(
@@ -168,7 +173,6 @@ class ETFDataSkill(BaseSkill):
         return csv_str.strip().replace('\n', '|')
 
 
-# app/skills/etf_skills.py - 修复 ETFAnalyzeSkill
 
 class ETFAnalyzeSkill(BaseBatchSkill):
     """
@@ -180,14 +184,19 @@ class ETFAnalyzeSkill(BaseBatchSkill):
         super().__init__(
             name="etf_quick_analyze",
             description="Quick scoring for ETFs for initial screening",
-            batch_size=5, # 15,
-            max_workers=2, # 4,
-            timeout=180,  # ✅ 增加超时时间
+            batch_size=5,
+            max_workers=2,
+            timeout=180,
             output_tokens=500,
-            safety_margin=0.75
+            safety_margin=0.75,
+            enable_cache=True  # ✅ 启用缓存
         )
         self.data_loader = ETFDataLoader()
         self.MIN_KEEP_COUNT = 50
+    
+    def _get_cache_key(self) -> str:
+        """缓存类型标识"""
+        return "quick"
     
     def _get_base_prompt(self) -> str:
         return """You are an experienced quantitative analyst. Please analyze the raw OHLCV data of ETFs.
@@ -208,12 +217,16 @@ Output JSON:
 }"""
     
     def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
-        """加载单个ETF数据"""
         days = kwargs.get('data_days', 30)
         return self.data_loader.load_data(symbol, days)
     
+    def _get_data_latest_date(self, data: Any) -> Optional[str]:
+        """获取数据最新日期"""
+        if isinstance(data, pd.DataFrame):
+            return self.data_loader.get_latest_date(data)
+        return None
+    
     def _get_item_data_str_for_item(self, item: Any, data: Any, **kwargs) -> str:
-        """获取单个项目的prompt片段"""
         symbol = self._get_symbol(item)
         if isinstance(data, pd.DataFrame):
             summary = self.data_loader.get_summary(data, days=20)
@@ -221,7 +234,6 @@ Output JSON:
         return symbol
     
     def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
-        """从数据创建item"""
         if isinstance(data, pd.DataFrame):
             return {
                 'symbol': symbol,
@@ -245,8 +257,6 @@ Output JSON:
             return []
         
         data_text = "\n".join(batch_data)
-        
-        # ✅ 简化 prompt，减少输出 token 消耗
         prompt = f"""Analyze the following {len(batch_data)} ETFs' raw OHLCV data.
 
 Data format: Symbol|Date|O|H|L|C|V
@@ -262,30 +272,17 @@ Output JSON ONLY (no other text):
 }}"""
 
         try:
-            print(f'ETFAnalyzeSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
                 temperature=0.3,
                 enable_thinking=False
             )
-            
-            print(f'ETFAnalyzeSkill._process_batch\n{response}')
-            # ✅ 打印调试信息
-            # print(f"      📝 LLM response length: {len(response)} chars.\n{response}")
-            
             results = self._parse_response(response)
-            if results:
-                print(f"      ✅ Parsed {len(results)} results")
-            else:
-                print(f"      ⚠️ No results parsed, response preview: {response[:200]}...")
-            
-            return results
-            
+            return results if results else []
         except Exception as e:
             print(f"      ⚠️ LLM analysis failed: {e}")
-            return []
-    
+            return []    
     def _parse_response(self, response: str) -> List[Dict]:
         """Parse LLM response - 增强解析逻辑"""
         results = []
