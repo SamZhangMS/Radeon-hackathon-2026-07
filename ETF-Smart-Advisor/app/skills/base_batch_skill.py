@@ -82,16 +82,14 @@ class BaseBatchSkill(BaseSkill):
         self._keep_symbols = set()  # 需要保留的symbol集合
         
         # ✅ Milvus 缓存
-        self._milvus = None
-        self._cache_collection = "etf_analysis_cache"
         if self.enable_cache:
             try:
                 self._milvus = get_milvus_client()
-                # 检查 Milvus 是否可用
-                if self._milvus and hasattr(self._milvus, '_client') and self._milvus._client is not None:
-                    self._ensure_cache_collection()
+                self._cache_available = self._milvus.recommendation is not None
+                if self._cache_available:
+                    print(f"   ✅ Milvus cache enabled")
                 else:
-                    print(f"   ⚠️ Milvus client not available, cache disabled")
+                    print(f"   ⚠️ Milvus cache not available")
                     self.enable_cache = False
             except Exception as e:
                 print(f"   ⚠️ Milvus init failed: {e}, cache disabled")
@@ -252,80 +250,37 @@ class BaseBatchSkill(BaseSkill):
     
     def _get_cached_result(self, symbol: str) -> Optional[Dict]:
         """从 Milvus 获取缓存结果"""
-        if not self._is_milvus_available():
+        if not self.enable_cache or self._milvus is None:
             return None
+        
         try:
             cache_type = self._get_cache_key()
-            expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
-            results = self._milvus._client.search(
-                collection_name=self._cache_collection,
-                expr=expr,
-                output_fields=["latest_date", "result"],
-                limit=1
-            )
-            if results:
-                return {
-                    "latest_date": results[0]["latest_date"],
-                    "result": results[0]["result"]
-                }
+            return self._milvus.recommendation.get(symbol, cache_type)
         except Exception as e:
-            # 静默失败，不影响主流程
-            pass
-        return None    
+            return None
+    
     def _save_cached_result(self, symbol: str, latest_date: str, result: Dict):
         """保存结果到 Milvus"""
-        if not self._is_milvus_available():
+        if not self.enable_cache or self._milvus is None:
             return
+        
         try:
             cache_type = self._get_cache_key()
-            now = datetime.now().isoformat()
-            expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
-            existing = self._milvus._client.search(
-                collection_name=self._cache_collection,
-                expr=expr,
-                output_fields=["id"],
-                limit=1
-            )
-            if existing:
-                self._milvus._client.update(
-                    collection_name=self._cache_collection,
-                    expr=expr,
-                    data={
-                        "latest_date": latest_date,
-                        "result": result,
-                        "updated_at": now
-                    }
-                )
-            else:
-                self._milvus._client.insert(
-                    collection_name=self._cache_collection,
-                    data=[{
-                        "symbol": symbol,
-                        "analysis_type": cache_type,
-                        "latest_date": latest_date,
-                        "result": result,
-                        "created_at": now,
-                        "updated_at": now
-                    }]
-                )
+            self._milvus.recommendation.save(symbol, cache_type, latest_date, result)
         except Exception as e:
-            # 静默失败，不影响主流程
             pass
     
     def _clear_cache(self, symbol: Optional[str] = None):
         """清除缓存"""
-        if not self._is_milvus_available():
+        if not self.enable_cache or self._milvus is None:
             return
+        
         try:
             cache_type = self._get_cache_key()
             if symbol:
-                expr = f'symbol == "{symbol}" and analysis_type == "{cache_type}"'
+                self._milvus.recommendation.clear(symbol, cache_type)
             else:
-                expr = f'analysis_type == "{cache_type}"'
-            self._milvus._client.delete(
-                collection_name=self._cache_collection,
-                expr=expr
-            )
+                self._milvus.recommendation.clear()
         except Exception as e:
             pass
     

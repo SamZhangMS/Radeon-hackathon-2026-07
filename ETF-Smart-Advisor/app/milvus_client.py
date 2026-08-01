@@ -1,6 +1,7 @@
 # app/milvus_client.py
 """
-Milvus 统一客户端 - 支持 Milvus Lite 自动降级
+Milvus 统一客户端 - 支持三种数据类型的存储
+使用基类 + 子类的设计模式，代码更简洁
 """
 
 import json
@@ -10,28 +11,38 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 import logging
+from abc import ABC, abstractmethod
 
-# ========== 尝试导入 Milvus Lite ==========
+# ========== 尝试导入 Milvus ==========
 try:
-    from milvus_lite import MilvusLite
-    MILVUS_AVAILABLE = True
+    from pymilvus import MilvusClient as PyMilvusClient, DataType
+    PYMILVUS_AVAILABLE = True
 except ImportError:
-    MilvusLite = None
-    MILVUS_AVAILABLE = False
-    logging.getLogger(__name__).warning("⚠️ milvus-lite 未安装，将使用内存模式")
+    PyMilvusClient = None
+    DataType = None
+    PYMILVUS_AVAILABLE = False
+    logging.getLogger(__name__).warning("⚠️ pymilvus 未安装")
 
-from sentence_transformers import SentenceTransformer
-from pymilvus import MilvusClient as PyMilvusClient, DataType
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SentenceTransformer = None
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 from .config import MILVUS_CONFIG, RAG_CONFIG, BASE_DIR
 
 logger = logging.getLogger(__name__)
 
 
-class MilvusClient:
+# ============================================================
+# 基类：Milvus 连接管理
+# ============================================================
+
+class MilvusConnection:
     """
-    Milvus 统一客户端 - 使用 PyMilvus 新 API
-    优先使用 Milvus Lite，失败时自动降级到内存模式
+    Milvus 连接管理基类
+    负责连接、初始化、降级等公共功能
     """
     
     _instance = None
@@ -48,119 +59,268 @@ class MilvusClient:
             return
         
         self._initialized = True
-        self.collection_name = MILVUS_CONFIG.get("collection_name", "etf_knowledge")
-        self.dim = MILVUS_CONFIG.get("dim", 384)
-        self.top_k = MILVUS_CONFIG.get("top_k", 5)
-        knowledge_dir_str = RAG_CONFIG.get("knowledge_dir", str(BASE_DIR / "knowledge"))
-        self.knowledge_dir = Path(knowledge_dir_str)
-        self.knowledge_dir.mkdir(parents=True, exist_ok=True)
         
-        # Milvus Lite 数据目录
-        self.milvus_data_dir = Path(BASE_DIR / "milvus_data.db")
+        # Milvus 数据目录
+        self.milvus_data_dir = BASE_DIR / "milvus_data.db"
         self.milvus_data_dir.parent.mkdir(parents=True, exist_ok=True)
-
-        # 加载 Embedding 模型
-        try:
-            self.embedder = SentenceTransformer(
-                RAG_CONFIG.get("embedding_model", "all-MiniLM-L6-v2"),
-                device="cpu"
-            )
-            logger.info("✅ Embedding 模型已加载")
-        except Exception as e:
-            logger.warning(f"⚠️ Embedding 模型加载失败: {e}")
-            self.embedder = None
-        
-        # 初始化知识库
-        self.knowledge = []
-        self._load_knowledge()
         
         # 尝试启动 Milvus Lite
-        if MILVUS_CONFIG.get("enabled", True) and MILVUS_AVAILABLE:
+        if MILVUS_CONFIG.get("enabled", True) and PYMILVUS_AVAILABLE:
             self._init_milvus_lite()
         else:
-            if not MILVUS_AVAILABLE:
-                logger.info("📌 Milvus Lite 未安装，使用内存模式")
+            self._memory_mode = True
+            if not PYMILVUS_AVAILABLE:
+                logger.info("📌 pymilvus 未安装，使用内存模式")
             else:
                 logger.info("📌 Milvus 已禁用，使用内存模式")
-            self._memory_mode = True
-        
-        # 如果 Milvus Lite 启动失败，使用内存模式
-        if self._memory_mode:
-            self._build_memory_index()
-        
-        logger.info(f"✅ Milvus 客户端初始化完成")
-        logger.info(f"   📊 模式: {'Milvus Lite' if not self._memory_mode else '内存模式'}")
-        logger.info(f"   📚 知识条目: {len(self.knowledge)}")
-        logger.info(f"   📏 向量维度: {self.dim}")
     
     def _init_milvus_lite(self):
-        """初始化 Milvus Lite - 使用新版 PyMilvus API"""
+        """初始化 Milvus Lite"""
+        if PyMilvusClient is None:
+            self._memory_mode = True
+            return
+        
         try:
             uri = f"file:{str(self.milvus_data_dir)}"
-            
-            # uri = str(self.milvus_data_dir)
-            self._client = PyMilvusClient(uri=uri, 
-                                          timeout=60,
-                                            keepalive_options={
-                                                'keepalive_time_ms': 60000,
-                                                'keepalive_timeout_ms': 20000,
-                                                'keepalive_permit_without_calls': True,
-                                            })
-            logger.info(f"✅ Milvus Lite 已连接: {uri}")
-            
-            # 初始化 Collection
-            self._init_collection()
-            self._memory_mode = False
-            
-        except ImportError as e:
-            logger.warning(f"⚠️ milvus-lite 未安装: {e}")
-            logger.info("   💡 安装: pip install milvus-lite")
-            self._memory_mode = True
-        except Exception as e:
-            logger.warning(f"⚠️ _init_milvus_lite-Milvus 初始化失败: {e}")
-            self._memory_mode = True
-    
-    def _init_collection(self):
-        """初始化 Milvus Collection"""
-        # 检查 Collection 是否存在
-        if self._client.has_collection(self.collection_name):
-            logger.info(f"📂 使用已有 Collection: {self.collection_name}")
-        else:
-            # 创建 Schema
-            schema = self._client.create_schema(
-                auto_id=False,
-                enable_dynamic_field=True
+            self._client = PyMilvusClient(
+                uri=uri,
+                timeout=60,
+                keepalive_options={
+                    'keepalive_time_ms': 60000,
+                    'keepalive_timeout_ms': 20000,
+                    'keepalive_permit_without_calls': True,
+                }
             )
-            schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=64, is_primary=True)
-            schema.add_field(field_name="title", datatype=DataType.VARCHAR, max_length=255)
-            schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=4096)
-            schema.add_field(field_name="category", datatype=DataType.VARCHAR, max_length=64)
-            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.dim)
-            schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=32)
-            schema.add_field(field_name="metadata", datatype=DataType.JSON)
+            logger.info(f"✅ Milvus Lite 已连接: {uri}")
+            self._memory_mode = False
+        except Exception as e:
+            logger.warning(f"⚠️ Milvus 初始化失败: {e}")
+            self._memory_mode = True
+            self._client = None
+    
+    def _is_available(self) -> bool:
+        """检查 Milvus 是否可用"""
+        return (not self._memory_mode and 
+                self._client is not None and
+                PYMILVUS_AVAILABLE)
+    
+    def _ensure_collection(self, collection_name: str, schema_func, index_func=None):
+        """确保 Collection 存在"""
+        if not self._is_available():
+            return False
+        
+        try:
+            if self._client.has_collection(collection_name):
+                return True
+            
+            # 创建 Schema
+            schema = schema_func()
             
             # 创建索引
-            index_params = self._client.prepare_index_params()
-            index_params.add_index(
-                field_name="embedding",
-                metric_type=MILVUS_CONFIG.get("metric_type", "IP"),
-                index_type=MILVUS_CONFIG.get("index_type", "IVF_FLAT"),
-                params={"nlist": MILVUS_CONFIG.get("nlist", 128)}
-            )
+            index_params = None
+            if index_func:
+                index_params = index_func()
             
-            # 创建 Collection
             self._client.create_collection(
-                collection_name=self.collection_name,
+                collection_name=collection_name,
                 schema=schema,
                 index_params=index_params
             )
-            logger.info(f"✅ 创建 Collection: {self.collection_name}")
+            logger.info(f"✅ 创建 Collection: {collection_name}")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ 创建 Collection 失败: {e}")
+            return False
+    
+    def _insert_data(self, collection_name: str, data: List[Dict]) -> bool:
+        """插入数据"""
+        if not self._is_available() or not data:
+            return False
         
-        # 如果 Collection 为空，插入数据
-        if self.knowledge:
-            stats = self._client.get_collection_stats(self.collection_name)
-            if stats.get("row_count", 0) == 0:
-                self._insert_knowledge(self.knowledge)
+        try:
+            self._client.insert(collection_name, data)
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ 插入数据失败: {e}")
+            return False
+    
+    def _query_data(self, collection_name: str, expr: str, 
+                    output_fields: List[str], limit: int = 1000) -> List[Dict]:
+        """查询数据"""
+        if not self._is_available():
+            return []
+        
+        try:
+            return self._client.query(
+                collection_name=collection_name,
+                filter=expr,
+                output_fields=output_fields,
+                limit=limit
+            )
+        except Exception as e:
+            logger.debug(f"查询失败: {e}")
+            return []
+    
+    def _delete_data(self, collection_name: str, expr: str) -> bool:
+        """删除数据"""
+        if not self._is_available():
+            return False
+        
+        try:
+            self._client.delete(collection_name=collection_name, filter=expr)
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ 删除失败: {e}")
+            return False
+    
+    def _update_data(self, collection_name: str, expr: str, data: Dict) -> bool:
+        """更新数据"""
+        if not self._is_available():
+            return False
+        
+        try:
+            self._client.update(
+                collection_name=collection_name,
+                filter=expr,
+                data=data
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ 更新失败: {e}")
+            return False
+    
+    def _get_stats(self, collection_name: str) -> Dict:
+        """获取 Collection 统计信息"""
+        if not self._is_available():
+            return {"row_count": 0, "error": "Milvus not available"}
+        
+        try:
+            return self._client.get_collection_stats(collection_name)
+        except Exception as e:
+            return {"row_count": 0, "error": str(e)}
+    
+    def stop(self):
+        """停止 Milvus 服务"""
+        if self._client:
+            try:
+                self._client.close()
+                logger.info("✅ Milvus 已停止")
+            except Exception as e:
+                logger.warning(f"停止 Milvus 失败: {e}")
+
+
+# ============================================================
+# 基类：Collection 管理器
+# ============================================================
+
+class BaseCollectionManager(ABC):
+    """
+    Collection 管理器基类
+    每个数据类型继承此类，实现自己的 Schema 和 CRUD 方法
+    """
+    
+    def __init__(self, collection_name: str):
+        self.connection = MilvusConnection()
+        self.collection_name = collection_name
+        self._ensure_collection()
+    
+    @abstractmethod
+    def _create_schema(self):
+        """创建 Schema（子类必须实现）"""
+        pass
+    
+    @abstractmethod
+    def _create_index_params(self):
+        """创建索引参数（子类可选实现）"""
+        return None
+    
+    def _ensure_collection(self):
+        """确保 Collection 存在"""
+        return self.connection._ensure_collection(
+            self.collection_name,
+            self._create_schema,
+            self._create_index_params
+        )
+    
+    def insert(self, data: List[Dict]) -> bool:
+        """插入数据"""
+        return self.connection._insert_data(self.collection_name, data)
+    
+    def query(self, expr: str, output_fields: List[str], limit: int = 1000) -> List[Dict]:
+        """查询数据"""
+        return self.connection._query_data(self.collection_name, expr, output_fields, limit)
+    
+    def delete(self, expr: str) -> bool:
+        """删除数据"""
+        return self.connection._delete_data(self.collection_name, expr)
+    
+    def update(self, expr: str, data: Dict) -> bool:
+        """更新数据"""
+        return self.connection._update_data(self.collection_name, expr, data)
+    
+    def get_stats(self) -> Dict:
+        """获取统计信息"""
+        return self.connection._get_stats(self.collection_name)
+
+
+# ============================================================
+# 1. 知识库管理器（Knowledge）
+# ============================================================
+
+class KnowledgeManager(BaseCollectionManager):
+    """知识库管理器 - 支持向量检索"""
+    
+    def __init__(self):
+        self.dim = MILVUS_CONFIG.get("dim", 384)
+        collection_name = MILVUS_CONFIG.get("collection_name", "etf_knowledge")
+        super().__init__(collection_name)
+        
+        # 加载 Embedding 模型
+        self.embedder = None
+        if SENTENCE_TRANSFORMERS_AVAILABLE:
+            try:
+                self.embedder = SentenceTransformer(
+                    RAG_CONFIG.get("embedding_model", "all-MiniLM-L6-v2"),
+                    device="cpu"
+                )
+            except Exception as e:
+                logger.warning(f"⚠️ Embedding 模型加载失败: {e}")
+        
+        # 内存模式下的知识库缓存
+        self._knowledge_cache = []
+        self._memory_embeddings = None
+        self._load_knowledge()
+        
+        # 如果是内存模式，构建索引
+        if self.connection._memory_mode:
+            self._build_memory_index()
+    
+    def _create_schema(self):
+        """创建知识库 Schema"""
+        schema = self.connection._client.create_schema(
+            auto_id=False,
+            enable_dynamic_field=True
+        )
+        schema.add_field(field_name="id", datatype=DataType.VARCHAR, max_length=64, is_primary=True)
+        schema.add_field(field_name="title", datatype=DataType.VARCHAR, max_length=255)
+        schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=4096)
+        schema.add_field(field_name="category", datatype=DataType.VARCHAR, max_length=64)
+        schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=self.dim)
+        schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=32)
+        schema.add_field(field_name="metadata", datatype=DataType.JSON)
+        return schema
+    
+    def _create_index_params(self):
+        """创建索引参数"""
+        index_params = self.connection._client.prepare_index_params()
+        index_params.add_index(
+            field_name="embedding",
+            metric_type=MILVUS_CONFIG.get("metric_type", "IP"),
+            index_type=MILVUS_CONFIG.get("index_type", "IVF_FLAT"),
+            params={"nlist": MILVUS_CONFIG.get("nlist", 128)}
+        )
+        return index_params
     
     def _load_knowledge(self):
         """加载知识库"""
@@ -200,13 +360,10 @@ class MilvusClient:
              "category": "风险管理"},
         ]
         
-        custom_knowledge = self._load_custom_knowledge()
-        self.knowledge = default_knowledge + custom_knowledge
-    
-    def _load_custom_knowledge(self) -> List[Dict]:
-        """加载自定义知识"""
+        # 加载自定义知识
+        knowledge_dir = Path(RAG_CONFIG.get("knowledge_dir", str(BASE_DIR / "knowledge")))
         custom_knowledge = []
-        for file_path in self.knowledge_dir.glob("*.json"):
+        for file_path in knowledge_dir.glob("*.json"):
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -214,45 +371,18 @@ class MilvusClient:
                         custom_knowledge.extend(data)
                     elif isinstance(data, dict):
                         custom_knowledge.append(data)
-                logger.info(f"  加载自定义知识: {file_path.name}")
             except Exception as e:
-                logger.warning(f"  加载失败 {file_path.name}: {e}")
-        return custom_knowledge
-    
-    def _insert_knowledge(self, knowledge: List[Dict]):
-        """插入知识到 Milvus"""
-        if self._memory_mode or self.embedder is None or not knowledge:
-            return
+                logger.warning(f"加载自定义知识失败 {file_path.name}: {e}")
         
-        try:
-            texts = [item['content'] for item in knowledge]
-            embeddings = self.embedder.encode(texts, convert_to_numpy=True)
-            
-            data = []
-            for i, item in enumerate(knowledge):
-                data.append({
-                    "id": item.get('id', hashlib.md5(item['content'].encode()).hexdigest()[:16]),
-                    "title": item.get('title', ''),
-                    "content": item['content'],
-                    "category": item.get('category', 'general'),
-                    "embedding": embeddings[i].tolist(),
-                    "created_at": datetime.now().isoformat(),
-                    "metadata": json.dumps(item.get('metadata', {}))
-                })
-            
-            self._client.insert(self.collection_name, data)
-            logger.info(f"✅ 插入 {len(data)} 条知识")
-        except Exception as e:
-            logger.warning(f"⚠️ 插入知识失败: {e}")
-            self._memory_mode = True
+        self._knowledge_cache = default_knowledge + custom_knowledge
     
     def _build_memory_index(self):
         """构建内存索引（降级方案）"""
-        if self.embedder is None or not self.knowledge:
+        if self.embedder is None or not self._knowledge_cache:
             return
         
         try:
-            texts = [item['content'] for item in self.knowledge]
+            texts = [item['content'] for item in self._knowledge_cache]
             self._memory_embeddings = self.embedder.encode(texts, convert_to_numpy=True)
             self._memory_embeddings = self._memory_embeddings / np.linalg.norm(
                 self._memory_embeddings, axis=1, keepdims=True
@@ -262,17 +392,16 @@ class MilvusClient:
             logger.warning(f"⚠️ 内存索引构建失败: {e}")
             self._memory_embeddings = None
     
-    # ============================================================
-    # 公共接口
-    # ============================================================
-    
-    def search(self, query: str, top_k: Optional[int] = None, category: Optional[str] = None) -> List[Dict]:
-        """搜索知识"""
-        top_k = top_k or self.top_k
+    def search(self, query: str, top_k: Optional[int] = None, 
+               category: Optional[str] = None) -> List[Dict]:
+        """搜索知识库"""
+        top_k = top_k or MILVUS_CONFIG.get("top_k", 5)
         
-        if self._memory_mode or self.embedder is None:
+        # 内存模式
+        if self.connection._memory_mode or self.embedder is None:
             return self._search_memory(query, top_k)
         
+        # Milvus 模式
         try:
             query_embedding = self.embedder.encode([query], convert_to_numpy=True)
             
@@ -280,7 +409,7 @@ class MilvusClient:
             if category:
                 filter_expr = f'category == "{category}"'
             
-            results = self._client.search(
+            results = self.connection._client.search(
                 collection_name=self.collection_name,
                 data=query_embedding.tolist(),
                 limit=top_k,
@@ -306,13 +435,6 @@ class MilvusClient:
                             "metadata": json.loads(entity.get('metadata', '{}')) if entity.get('metadata') else {}
                         })
             
-            if len(formatted_results) < 2:
-                keyword_results = self._keyword_search(query)
-                existing_ids = {r['id'] for r in formatted_results}
-                for item in keyword_results:
-                    if item['id'] not in existing_ids:
-                        formatted_results.append(item)
-            
             return formatted_results[:top_k]
             
         except Exception as e:
@@ -321,11 +443,11 @@ class MilvusClient:
     
     def _search_memory(self, query: str, top_k: int) -> List[Dict]:
         """内存模式搜索"""
-        if not self.knowledge or self.embedder is None:
+        if not self._knowledge_cache or self.embedder is None:
             return []
         
         try:
-            if not hasattr(self, '_memory_embeddings') or self._memory_embeddings is None:
+            if self._memory_embeddings is None:
                 self._build_memory_index()
             
             if self._memory_embeddings is None:
@@ -340,7 +462,7 @@ class MilvusClient:
             results = []
             for idx in indices:
                 if similarities[idx] > 0.3:
-                    item = self.knowledge[idx].copy()
+                    item = self._knowledge_cache[idx].copy()
                     item['score'] = float(similarities[idx])
                     results.append(item)
             
@@ -353,9 +475,10 @@ class MilvusClient:
         """关键词搜索（降级）"""
         query_lower = query.lower()
         keywords = query_lower.split()
+        top_k = MILVUS_CONFIG.get("top_k", 5)
         
         results = []
-        for item in self.knowledge:
+        for item in self._knowledge_cache:
             content_lower = item.get('content', '').lower()
             title_lower = item.get('title', '').lower()
             
@@ -371,9 +494,10 @@ class MilvusClient:
                 item['score'] = min(score / 10, 0.9)
                 results.append(item)
         
-        return sorted(results, key=lambda x: x['score'], reverse=True)[:self.top_k]
+        return sorted(results, key=lambda x: x['score'], reverse=True)[:top_k]
     
-    def insert(self, title: str, content: str, category: str = "general", metadata: Optional[Dict] = None) -> str:
+    def insert(self, title: str, content: str, category: str = "general", 
+               metadata: Optional[Dict] = None) -> str:
         """插入知识"""
         item_id = hashlib.md5(f"{title}{content}{datetime.now()}".encode()).hexdigest()[:16]
         
@@ -385,13 +509,12 @@ class MilvusClient:
             "metadata": metadata or {}
         }
         
-        self.knowledge.append(new_item)
+        self._knowledge_cache.append(new_item)
         
-        # 如果使用 Milvus Lite，插入到 Milvus
-        if not self._memory_mode and self.embedder is not None:
+        if self.connection._is_available() and self.embedder is not None:
             try:
                 embedding = self.embedder.encode([content], convert_to_numpy=True)
-                self._client.insert(self.collection_name, [{
+                self.connection._insert_data(self.collection_name, [{
                     "id": item_id,
                     "title": title,
                     "content": content,
@@ -402,92 +525,229 @@ class MilvusClient:
                 }])
             except Exception as e:
                 logger.warning(f"⚠️ 插入失败: {e}")
-                self._memory_mode = True
                 self._build_memory_index()
         else:
-            # 内存模式，重建索引
             self._build_memory_index()
         
-        # 保存到文件
-        self._save_custom_knowledge(new_item)
         return item_id
-    
-    def _save_custom_knowledge(self, item: Dict):
-        """保存自定义知识"""
-        file_path = self.knowledge_dir / "custom_knowledge.json"
-        try:
-            existing = []
-            if file_path.exists():
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    existing = json.load(f)
-            existing.append(item)
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(existing, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"保存知识失败: {e}")
     
     def delete(self, item_id: str) -> bool:
         """删除知识"""
-        if not self._memory_mode:
-            try:
-                self._client.delete(self.collection_name, f'id == "{item_id}"')
-            except Exception as e:
-                logger.warning(f"⚠️ 删除失败: {e}")
+        if self.connection._is_available():
+            self.connection._delete_data(self.collection_name, f'id == "{item_id}"')
         
-        self.knowledge = [item for item in self.knowledge if item['id'] != item_id]
+        self._knowledge_cache = [item for item in self._knowledge_cache if item['id'] != item_id]
         
-        if self._memory_mode:
+        if self.connection._memory_mode:
             self._build_memory_index()
         
         return True
+
+
+# ============================================================
+# 2. 推荐缓存管理器（Recommendation）
+# ============================================================
+
+class RecommendationCacheManager(BaseCollectionManager):
+    """推荐缓存管理器"""
     
-    def delete_all(self):
-        """清空所有知识"""
-        if not self._memory_mode:
-            try:
-                self._client.delete(self.collection_name, "id is not None")
-            except Exception as e:
-                logger.warning(f"⚠️ 清空失败: {e}")
+    def __init__(self):
+        collection_name = "etf_recommendation_cache"
+        super().__init__(collection_name)
+    
+    def _create_schema(self):
+        """创建推荐缓存 Schema"""
+        schema = self.connection._client.create_schema(
+            auto_id=True,
+            enable_dynamic_field=True
+        )
+        schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+        schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20)
+        schema.add_field(field_name="analysis_type", datatype=DataType.VARCHAR, max_length=50)
+        schema.add_field(field_name="latest_date", datatype=DataType.VARCHAR, max_length=20)
+        schema.add_field(field_name="result", datatype=DataType.JSON)
+        schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=30)
+        schema.add_field(field_name="updated_at", datatype=DataType.VARCHAR, max_length=30)
+        return schema
+    
+    def _create_index_params(self):
+        """创建索引参数"""
+        index_params = self.connection._client.prepare_index_params()
+        index_params.add_index(field_name="symbol", index_type="INVERTED")
+        index_params.add_index(field_name="analysis_type", index_type="INVERTED")
+        return index_params
+    
+    def get(self, symbol: str, analysis_type: str) -> Optional[Dict]:
+        """获取缓存"""
+        expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
+        results = self.query(expr, ["latest_date", "result"], limit=1)
         
-        self.knowledge = []
-        if self._memory_mode:
-            self._memory_embeddings = None
+        if results:
+            return {
+                "latest_date": results[0]["latest_date"],
+                "result": results[0]["result"]
+            }
+        return None
+    
+    def save(self, symbol: str, analysis_type: str, latest_date: str, result: Dict):
+        """保存缓存"""
+        now = datetime.now().isoformat()
+        expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
+        
+        existing = self.query(expr, ["id"], limit=1)
+        
+        if existing:
+            self.update(expr, {
+                "latest_date": latest_date,
+                "result": result,
+                "updated_at": now
+            })
+        else:
+            self.insert([{
+                "symbol": symbol,
+                "analysis_type": analysis_type,
+                "latest_date": latest_date,
+                "result": result,
+                "created_at": now,
+                "updated_at": now
+            }])
+    
+    def clear(self, symbol: Optional[str] = None, analysis_type: Optional[str] = None):
+        """清除缓存"""
+        if symbol and analysis_type:
+            expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
+        elif symbol:
+            expr = f'symbol == "{symbol}"'
+        else:
+            expr = "id is not None"
+        
+        self.delete(expr)
+
+
+# ============================================================
+# 3. 反馈管理器（Feedback）
+# ============================================================
+
+class FeedbackManager(BaseCollectionManager):
+    """反馈管理器"""
+    
+    def __init__(self):
+        collection_name = "etf_feedback"
+        super().__init__(collection_name)
+    
+    def _create_schema(self):
+        """创建反馈 Schema"""
+        schema = self.connection._client.create_schema(
+            auto_id=True,
+            enable_dynamic_field=True
+        )
+        schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+        schema.add_field(field_name="timestamp", datatype=DataType.VARCHAR, max_length=30)
+        schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20)
+        schema.add_field(field_name="recommendation", datatype=DataType.VARCHAR, max_length=50)
+        schema.add_field(field_name="actual_result", datatype=DataType.VARCHAR, max_length=50)
+        schema.add_field(field_name="user_rating", datatype=DataType.INT64)
+        schema.add_field(field_name="user_comment", datatype=DataType.VARCHAR, max_length=500)
+        schema.add_field(field_name="accuracy", datatype=DataType.FLOAT)
+        schema.add_field(field_name="metadata", datatype=DataType.JSON)
+        return schema
+    
+    def _create_index_params(self):
+        """创建索引参数"""
+        index_params = self.connection._client.prepare_index_params()
+        index_params.add_index(field_name="symbol", index_type="INVERTED")
+        index_params.add_index(field_name="timestamp", index_type="INVERTED")
+        index_params.add_index(field_name="user_rating", index_type="INVERTED")
+        return index_params
+    
+    def insert_feedback(self, feedback: Dict) -> bool:
+        """插入反馈"""
+        # 确保必需字段存在
+        required_fields = ["symbol", "recommendation", "actual_result", "user_rating"]
+        for field in required_fields:
+            if field not in feedback:
+                logger.warning(f"⚠️ 反馈数据缺少必需字段: {field}")
+                return False
+        
+        # 添加时间戳
+        if "timestamp" not in feedback:
+            feedback["timestamp"] = datetime.now().isoformat()
+        
+        # 计算准确率（如果未提供）
+        if "accuracy" not in feedback:
+            feedback["accuracy"] = 0.5
+        
+        return self.insert([feedback])
+    
+    def get_by_symbol(self, symbol: str, limit: int = 1000) -> List[Dict]:
+        """获取指定股票的反馈"""
+        expr = f'symbol == "{symbol}"'
+        return self.query(expr, [
+            "timestamp", "recommendation", "actual_result", 
+            "user_rating", "user_comment", "accuracy", "metadata"
+        ], limit=limit)
+    
+    def get_all(self, limit: int = 10000) -> List[Dict]:
+        """获取所有反馈"""
+        return self.query("id is not None", [
+            "symbol", "accuracy", "user_rating", "timestamp"
+        ], limit=limit)
+    
+    def clear(self, symbol: Optional[str] = None):
+        """清除反馈"""
+        expr = f'symbol == "{symbol}"' if symbol else "id is not None"
+        self.delete(expr)
+
+
+# ============================================================
+# 统一客户端接口
+# ============================================================
+
+class MilvusClient:
+    """
+    Milvus 统一客户端
+    提供三个子管理器的访问入口
+    """
+    
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        if hasattr(self, '_initialized'):
+            return
+        
+        self._initialized = True
+        
+        # 初始化三个管理器
+        self.knowledge = KnowledgeManager()
+        self.recommendation = RecommendationCacheManager()
+        self.feedback = FeedbackManager()
+        
+        logger.info("✅ Milvus 客户端初始化完成")
+        logger.info(f"   📚 Collections: knowledge, recommendation, feedback")
     
     def get_stats(self) -> Dict:
-        """获取统计信息"""
-        stats = {
-            "collection": self.collection_name,
-            "dimension": self.dim,
-            "total_knowledge": len(self.knowledge),
-            "top_k": self.top_k,
-            "memory_mode": self._memory_mode,
-            "data_dir": str(self.milvus_data_dir) if hasattr(self, 'milvus_data_dir') else None,
+        """获取所有 Collection 的统计信息"""
+        return {
+            "knowledge": self.knowledge.get_stats(),
+            "recommendation": self.recommendation.get_stats(),
+            "feedback": self.feedback.get_stats(),
+            "mode": "Memory" if self.knowledge.connection._memory_mode else "Milvus Lite"
         }
-        
-        if not self._memory_mode and self._client:
-            try:
-                collection_stats = self._client.get_collection_stats(self.collection_name)
-                stats["total_entities"] = collection_stats.get("row_count", 0)
-            except Exception as e:
-                logger.debug(f"获取统计信息失败: {e}")
-        
-        return stats
     
     def stop(self):
-        """停止 Milvus Lite 服务"""
-        if self._client:
-            try:
-                self._client.close()
-                logger.info("✅ Milvus Lite 已停止")
-            except Exception as e:
-                logger.warning(f"停止 Milvus 失败: {e}")
+        """停止 Milvus 服务"""
+        self.knowledge.connection.stop()
 
 
+# ============================================================
 # 全局单例
-def get_milvus_client():
+# ============================================================
+
+def get_milvus_client() -> MilvusClient:
     """获取 Milvus 客户端"""
     return MilvusClient()
-
-
-# 兼容旧代码
-MilvusRAG = MilvusClient

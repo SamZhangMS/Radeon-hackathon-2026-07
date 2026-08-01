@@ -457,7 +457,8 @@ async def rag_search(request: SearchKnowledgeRequest):
 async def rag_add(request: AddKnowledgeRequest):
     """添加知识"""
     try:
-        item_id = milvus_client.insert(
+        # ✅ 使用 knowledge.insert
+        item_id = milvus_client.knowledge.insert(
             title=request.title,
             content=request.content,
             category=request.category
@@ -475,7 +476,8 @@ async def rag_add(request: AddKnowledgeRequest):
 async def rag_delete(item_id: str):
     """删除知识"""
     try:
-        success = milvus_client.delete(item_id)
+        # ✅ 使用 knowledge.delete_by_id
+        success = milvus_client.knowledge.delete_by_id(item_id)
         if success:
             return {"status": "success", "message": "知识已删除"}
         else:
@@ -484,10 +486,12 @@ async def rag_delete(item_id: str):
         print(f"rag_delete error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
+
 @app.get("/api/rag/stats", dependencies=[Depends(verify_token)])
 async def rag_stats():
     """获取 RAG 统计信息"""
     try:
+        # ✅ 使用 get_stats（已经返回所有 Collection 的信息）
         stats = milvus_client.get_stats()
         return {"status": "success", "stats": stats}
     except Exception as e:
@@ -498,7 +502,8 @@ async def rag_stats():
 async def rag_clear():
     """清空知识库"""
     try:
-        milvus_client.delete_all()
+        # ✅ 使用 knowledge.delete_all
+        milvus_client.knowledge.delete_all()
         return {"status": "success", "message": "知识库已清空"}
     except Exception as e:
         print(f"rag_clear error. Exception:{e}\nTrackback:{format_exception(e)}")

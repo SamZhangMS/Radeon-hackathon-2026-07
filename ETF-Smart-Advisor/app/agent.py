@@ -404,43 +404,13 @@ class ETFAdvisorAgent:
             if self.milvus is None:
                 return {"success": False, "error": "知识库服务不可用"}
             
-            results = self.milvus.search(query=query, top_k=top_k)
+            # ✅ 使用 knowledge.search
+            results = self.milvus.knowledge.search(query=query, top_k=top_k)
             return {"success": True, "results": results, "count": len(results)}
         except Exception as e:
-            return {"success": False, "error": str(e)}
-    
-    def get_status(self) -> Dict:
-        """获取系统状态"""
-        llm_status = self.llm.get_model_status()
-        milvus_stats = self.milvus.get_stats() if self.milvus else {"available": False}
-        memory_stats = self.memory.get_stats() if self.memory else {"enabled": False}
-        
-        return {
-            "llm": llm_status,
-            "milvus": milvus_stats,
-            "memory": memory_stats,
-            "device":  "cuda" if torch.cuda.is_available() else "cpu",
-            "privacy": {
-                "enabled": self.privacy.enabled if self.privacy else False,
-            }
-        }
-    
-    # ============================================================
-    # 工具方法（异步）
-    # ============================================================
-    
+            return {"success": False, "error": str(e)}    
     async def _search_knowledge(self, query: str, category: Optional[str] = None) -> str:
-        """
-        搜索知识库 - 使用 Milvus 向量检索
-        
-        Args:
-            query: 搜索查询
-            category: 知识类别过滤（可选）
-        
-        Returns:
-            格式化的搜索结果
-        """
-        # 隐私保护
+        """搜索知识库 - 使用 Milvus 向量检索"""
         if self.privacy:
             self.privacy.log_access(
                 "user",
@@ -453,10 +423,10 @@ class ETFAdvisorAgent:
             return "⚠️ 知识库服务不可用，请检查 Milvus 连接"
         
         try:
-            results = self.milvus.search(query=query, top_k=5, category=category)
+            # ✅ 使用 knowledge.search
+            results = self.milvus.knowledge.search(query=query, top_k=5, category=category)
             
             if not results:
-                # 降级：使用 LLM 生成回答
                 try:
                     llm_response = await self._generate_knowledge_response(query)
                     if llm_response:
@@ -465,7 +435,7 @@ class ETFAdvisorAgent:
                     pass
                 return "📚 知识检索结果\n{'='*40}\n\n未找到相关知识，请尝试其他关键词。"
             
-            # 格式化结果
+            # 格式化结果（保持不变）
             output = f"📚 知识检索结果 (找到 {len(results)} 条)\n"
             output += "="*40 + "\n\n"
             
@@ -505,6 +475,29 @@ class ETFAdvisorAgent:
         except Exception as e:
             logger.error(f"RAG 搜索失败: {e}")
             return f"⚠️ 搜索失败: {e}"
+
+    # ============================================================
+    # 修改 get_status 方法
+    # ============================================================
+
+    def get_status(self) -> Dict:
+        """获取系统状态"""
+        llm_status = self.llm.get_model_status()
+        
+        # ✅ 使用新的 stats 方法
+        milvus_stats = self.milvus.get_stats() if self.milvus else {"available": False}
+        
+        memory_stats = self.memory.get_stats() if self.memory else {"enabled": False}
+        
+        return {
+            "llm": llm_status,
+            "milvus": milvus_stats,
+            "memory": memory_stats,
+            "device": "cuda" if torch.cuda.is_available() else "cpu",
+            "privacy": {
+                "enabled": self.privacy.enabled if self.privacy else False,
+            }
+        }
     
     async def _generate_knowledge_response(self, query: str) -> Optional[str]:
         """使用 LLM 生成知识回答（RAG 无结果时降级）"""
