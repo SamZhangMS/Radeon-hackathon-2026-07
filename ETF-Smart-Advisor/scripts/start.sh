@@ -171,7 +171,7 @@ echo ""
 echo "🔍 Checking vLLM availability..."
 
 # 初始化USE_VLLM为false
-USE_VLLM=false
+USE_VLLM=$VLLM_ENABLED
 
 # 只有在配置中启用且端口可用时才尝试vLLM
 if [ "$VLLM_ENABLED" = "True" ] || [ "$VLLM_ENABLED" = "true" ]; then

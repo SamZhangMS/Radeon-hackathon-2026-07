@@ -400,6 +400,7 @@ class LLMClient:
                 logger.warning(f"vLLM 失败，降级到 Transformers: {result.get('error')}")
             
             # ✅ 降级到 Transformers（已启用）
+            logger.info("Starting Transformers")
             result = self._transformers_generate(
                 messages=messages,
                 max_new_tokens=safe_max_tokens,

@@ -177,7 +177,7 @@ LLM_API_CONFIG = {
     
     # vLLM 推理配置
     "vllm": {
-        "enabled": True,
+        "enabled": False, # True,
         "host": "localhost",
         "port": 8000,
         "served_model_name": LLM_MODEL_NAME,
@@ -198,16 +198,6 @@ LLM_API_CONFIG = {
             "enabled": False,
             "weight": 0.3,
         }
-    },
-    
-    # LoRA 配置
-    "lora": {
-        "enabled": True,
-        "path": str(MODELS_DIR / "lora_etf_advisor"),
-        "r": 16,
-        "lora_alpha": 32,
-        "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-        "lora_dropout": 0.1,
     }
 }
 LLM_CONFIG = LLM_API_CONFIG
