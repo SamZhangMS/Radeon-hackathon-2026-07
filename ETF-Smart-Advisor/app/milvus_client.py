@@ -98,9 +98,9 @@ class MilvusConnection:
                 uri=uri,
                 timeout=60,
                 keepalive_options={
-                    'keepalive_time_ms': 60000,
-                    'keepalive_timeout_ms': 20000,
-                    'keepalive_permit_without_calls': True,
+                    'keepalive_time_ms': 30000,  # 60000,
+                    'keepalive_timeout_ms': 10000, # 20000,
+                    'keepalive_permit_without_calls': False, # True,
                 }
             )
             
