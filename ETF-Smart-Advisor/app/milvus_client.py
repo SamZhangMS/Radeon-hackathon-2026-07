@@ -62,7 +62,7 @@ class MilvusConnection:
         self._initialized = True
         
         # Milvus 数据目录
-        self.milvus_data_dir = BASE_DIR / 'data' / "milvus_data.db"
+        self.milvus_data_dir = BASE_DIR / 'data' / "milvus_data" # "milvus_data.db"
         self.milvus_data_dir.parent.mkdir(parents=True, exist_ok=True)
         
         # if not self.milvus_data_dir.exists():
