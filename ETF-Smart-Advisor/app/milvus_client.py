@@ -61,7 +61,7 @@ class MilvusConnection:
         self._initialized = True
         
         # Milvus 数据目录
-        self.milvus_data_dir = BASE_DIR / "milvus_data.db"
+        self.milvus_data_dir = BASE_DIR / 'data' / "milvus_data.db"
         self.milvus_data_dir.parent.mkdir(parents=True, exist_ok=True)
         
         if not self.milvus_data_dir.exists():
@@ -90,7 +90,7 @@ class MilvusConnection:
         try:
             # ✅ 修复：使用正确的 URI 格式
             # Milvus Lite 要求 file: 前缀加绝对路径
-            uri = f"{self.milvus_data_path}"
+            uri = self.milvus_data_path
             
             logger.info(f"🔗 连接 Milvus Lite: {uri}")
             
