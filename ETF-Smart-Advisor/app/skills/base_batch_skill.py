@@ -251,28 +251,34 @@ class BaseBatchSkill(BaseSkill):
     def _get_cached_result(self, symbol: str) -> Optional[Dict]:
         """从 Milvus 获取缓存结果"""
         if not self.enable_cache or self._milvus is None:
+            print(f'[BaseBatchSkill._get_cached_result] self.enable_cache not available or self._milvus is None')
             return None
         
         try:
             cache_type = self._get_cache_key()
             return self._milvus.recommendation.get(symbol, cache_type)
+            print(f'[BaseBatchSkill._get_cached_result] 获取缓存成功: {symbol} {cache_type}')
         except Exception as e:
+            print(f'[BaseBatchSkill._get_cached_result] 获取缓存失败: {e}\nTrackback:{format_exception(e)}')
             return None
     
     def _save_cached_result(self, symbol: str, latest_date: str, result: Dict):
         """保存结果到 Milvus"""
         if not self.enable_cache or self._milvus is None:
+            print(f'[BaseBatchSkill._save_cached_result] self.enable_cache not available or self._milvus is None')
             return
         
         try:
             cache_type = self._get_cache_key()
             self._milvus.recommendation.save(symbol, cache_type, latest_date, result)
+            print(f'[BaseBatchSkill._save_cached_result] 保存缓存成功: {symbol} {cache_type} {latest_date}')
         except Exception as e:
-            pass
+            print(f'[BaseBatchSkill._save_cached_result] 保存缓存失败: {e}\nTrackback:{format_exception(e)}')
     
     def _clear_cache(self, symbol: Optional[str] = None):
         """清除缓存"""
         if not self.enable_cache or self._milvus is None:
+            print(f'[BaseBatchSkill._clear_cache] self.enable_cache not available or self._milvus is None')
             return
         
         try:
@@ -281,7 +287,10 @@ class BaseBatchSkill(BaseSkill):
                 self._milvus.recommendation.clear(symbol, cache_type)
             else:
                 self._milvus.recommendation.clear()
+            
+            print(f'[BaseBatchSkill._clear_cache] 清除缓存成功: {cache_type}')
         except Exception as e:
+            print(f'[BaseBatchSkill._clear_cache] 清除缓存失败: {e}\nTrackback:{format_exception(e)}')
             pass
     
     # ============================================================
@@ -304,8 +313,10 @@ class BaseBatchSkill(BaseSkill):
         # 查询缓存
         cached = self._get_cached_result(symbol)
         if cached and cached.get("latest_date") == latest_date:
+            print(f"[BaseBatchSkill._check_cache_for_item] 命中缓存: {symbol} {cached.get('result')} {latest_date}")
             return cached.get("result"), True
         
+        print(f"[BaseBatchSkill._check_cache_for_item] 未命中缓存: {symbol} {latest_date}")
         return None, False
     
     def _get_data_latest_date(self, data: Any) -> Optional[str]:
