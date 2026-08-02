@@ -438,8 +438,8 @@ Output JSON ONLY (no other text):
         print(f"   ✅ Final retained {len(final_results)} candidates")
         
         # 清理缓存
-        self.data_loader.clear_cache()
-        self.clear_cache()
+        # self.data_loader.clear_cache()
+        # self.clear_cache()
         
         return final_results
 
@@ -585,8 +585,8 @@ Output JSON:
         print(f"   ✅ Final retained {len(final_results)} candidates")
         
         # 清理缓存
-        self.data_loader.clear_cache()
-        self.clear_cache()
+        # self.data_loader.clear_cache()
+        # self.clear_cache()
         
         return final_results
 
@@ -786,7 +786,7 @@ Format: YYYY-MM-DD|O|H|L|C|V
         print(f"   ✅ Final returned {len(final_results)} deep analysis results")
         
         # 清理缓存
-        self.data_loader.clear_cache()
-        self.clear_cache()
+        # self.data_loader.clear_cache()
+        # self.clear_cache()
         
         return final_results
