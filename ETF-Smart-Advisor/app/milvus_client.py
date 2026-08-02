@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 import logging
 from abc import ABC, abstractmethod
+from .utils import format_exception
 
 # ========== 尝试导入 Milvus ==========
 try:
@@ -114,12 +115,12 @@ class MilvusConnection:
                     logger.info(f"   Collections: {collections}")
                 self._memory_mode = False
             except Exception as e:
-                logger.warning(f"⚠️ Milvus Lite 连接测试失败: {e}")
+                logger.warning(f"⚠️ Milvus Lite 连接测试失败: {e}\nTrackback:{format_exception(e)}")
                 self._memory_mode = True
                 self._client = None
             
         except Exception as e:
-            logger.warning(f"⚠️ Milvus 初始化失败: {e}")
+            logger.warning(f"⚠️ Milvus 初始化失败: {e}\nTrackback:{format_exception(e)}")
             self._memory_mode = True
             self._client = None
     
@@ -155,7 +156,7 @@ class MilvusConnection:
             return True
             
         except Exception as e:
-            logger.warning(f"⚠️ 创建 Collection 失败: {e}")
+            logger.warning(f"⚠️ 创建 Collection 失败: {e}\nTrackback:{format_exception(e)}")
             return False
     
     def _insert_data(self, collection_name: str, data: List[Dict]) -> bool:
@@ -167,7 +168,7 @@ class MilvusConnection:
             self._client.insert(collection_name, data)
             return True
         except Exception as e:
-            logger.warning(f"⚠️ 插入数据失败: {e}")
+            logger.warning(f"⚠️ 插入数据失败: {e}\nTrackback:{format_exception(e)}")
             return False
     
     def _query_data(self, collection_name: str, expr: str, 
@@ -184,7 +185,7 @@ class MilvusConnection:
                 limit=limit
             )
         except Exception as e:
-            logger.debug(f"查询失败: {e}")
+            logger.debug(f"查询失败: {e}\nTrackback:{format_exception(e)}")
             return []
     
     def _delete_data(self, collection_name: str, expr: str) -> bool:
@@ -196,7 +197,7 @@ class MilvusConnection:
             self._client.delete(collection_name=collection_name, filter=expr)
             return True
         except Exception as e:
-            logger.warning(f"⚠️ 删除失败: {e}")
+            logger.warning(f"⚠️ 删除失败: {e}\nTrackback:{format_exception(e)}")
             return False
     
     def _update_data(self, collection_name: str, expr: str, data: Dict) -> bool:
@@ -212,7 +213,7 @@ class MilvusConnection:
             )
             return True
         except Exception as e:
-            logger.warning(f"⚠️ 更新失败: {e}")
+            logger.warning(f"⚠️ 更新失败: {e}\nTrackback:{format_exception(e)}")
             return False
     
     def _get_stats(self, collection_name: str) -> Dict:
@@ -223,7 +224,7 @@ class MilvusConnection:
         try:
             return self._client.get_collection_stats(collection_name)
         except Exception as e:
-            return {"row_count": 0, "error": str(e)}
+            return {"row_count": 0, "error": str(e)," traceback": format_exception(e)}
     
     def stop(self):
         """停止 Milvus 服务"""
@@ -310,7 +311,7 @@ class KnowledgeManager(BaseCollectionManager):
                     device="cpu"
                 )
             except Exception as e:
-                logger.warning(f"⚠️ Embedding 模型加载失败: {e}")
+                logger.warning(f"⚠️ Embedding 模型加载失败: {e}\nTrackback:{format_exception(e)}")
         
         # 内存模式下的知识库缓存
         self._knowledge_cache = []
@@ -403,7 +404,7 @@ class KnowledgeManager(BaseCollectionManager):
                     elif isinstance(data, dict):
                         custom_knowledge.append(data)
             except Exception as e:
-                logger.warning(f"加载自定义知识失败 {file_path.name}: {e}")
+                logger.warning(f"加载自定义知识失败 {file_path.name}: {e}\nTrackback:{format_exception(e)}")
         
         self._knowledge_cache = default_knowledge + custom_knowledge
     
@@ -420,7 +421,7 @@ class KnowledgeManager(BaseCollectionManager):
             )
             logger.info("✅ 内存索引已构建")
         except Exception as e:
-            logger.warning(f"⚠️ 内存索引构建失败: {e}")
+            logger.warning(f"⚠️ 内存索引构建失败: {e}\nTrackback:{format_exception(e)}")
             self._memory_embeddings = None
     
     def search(self, query: str, top_k: Optional[int] = None, 
@@ -469,7 +470,7 @@ class KnowledgeManager(BaseCollectionManager):
             return formatted_results[:top_k]
             
         except Exception as e:
-            logger.warning(f"⚠️ Milvus 搜索失败，降级到内存: {e}")
+            logger.warning(f"⚠️ Milvus 搜索失败，降级到内存: {e}\nTrackback:{format_exception(e)}")
             return self._search_memory(query, top_k)
     
     def _search_memory(self, query: str, top_k: int) -> List[Dict]:
@@ -499,7 +500,7 @@ class KnowledgeManager(BaseCollectionManager):
             
             return results
         except Exception as e:
-            logger.warning(f"⚠️ 内存搜索失败: {e}")
+            logger.warning(f"⚠️ 内存搜索失败: {e}\nTrackback:{format_exception(e)}")
             return self._keyword_search(query)
     
     def _keyword_search(self, query: str) -> List[Dict]:
@@ -555,7 +556,7 @@ class KnowledgeManager(BaseCollectionManager):
                     "metadata": json.dumps(metadata or {}),
                 }])
             except Exception as e:
-                logger.warning(f"⚠️ 插入失败: {e}")
+                logger.warning(f"⚠️ 插入失败: {e}\nTrackback:{format_exception(e)}")
                 self._build_memory_index()
         else:
             self._build_memory_index()
