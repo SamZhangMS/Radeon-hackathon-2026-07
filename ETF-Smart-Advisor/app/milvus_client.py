@@ -133,6 +133,7 @@ class MilvusConnection:
     def _ensure_collection(self, collection_name: str, schema_func, index_func=None):
         """确保 Collection 存在"""
         if not self._is_available():
+            print(f'[milvus - _ensure_collection], self._is_available()={self._is_available()}')
             return False
         
         try:
@@ -162,10 +163,12 @@ class MilvusConnection:
     def _insert_data(self, collection_name: str, data: List[Dict]) -> bool:
         """插入数据"""
         if not self._is_available() or not data:
+            print(f'[milvus - _insert_data], self._is_available()={self._is_available()}, data={data}')
             return False
         
         try:
             self._client.insert(collection_name, data)
+            print(f'[milvus - _insert_data], 插入数据成功: {len(data)} 条')
             return True
         except Exception as e:
             logger.warning(f"⚠️ 插入数据失败: {e}\nTrackback:{format_exception(e)}")
@@ -175,6 +178,7 @@ class MilvusConnection:
                     output_fields: List[str], limit: int = 1000) -> List[Dict]:
         """查询数据"""
         if not self._is_available():
+            print(f'[milvus - _query_data], self._is_available()={self._is_available()}, expr={expr}')
             return []
         
         try:
@@ -185,24 +189,27 @@ class MilvusConnection:
                 limit=limit
             )
         except Exception as e:
-            logger.debug(f"查询失败: {e}\nTrackback:{format_exception(e)}")
+            print(f'[milvus - _query_data], _query_data 查询失败: {e}\nTrackback:{format_exception(e)}')
             return []
     
     def _delete_data(self, collection_name: str, expr: str) -> bool:
         """删除数据"""
         if not self._is_available():
+            print(f'[milvus - _delete_data], self._is_available()={self._is_available()}, expr={expr}')
             return False
         
         try:
             self._client.delete(collection_name=collection_name, filter=expr)
+            print(f'[milvus - _delete_data], 删除数据成功')
             return True
         except Exception as e:
-            logger.warning(f"⚠️ 删除失败: {e}\nTrackback:{format_exception(e)}")
+            logger.warning(f"⚠️ _delete_data 删除失败: {e}\nTrackback:{format_exception(e)}")
             return False
     
     def _update_data(self, collection_name: str, expr: str, data: Dict) -> bool:
         """更新数据"""
         if not self._is_available():
+            print(f'[milvus - _update_data], self._is_available()={self._is_available()}, expr={expr}')
             return False
         
         try:
@@ -211,19 +218,22 @@ class MilvusConnection:
                 filter=expr,
                 data=data
             )
+            print(f'[milvus - _update_data], 更新数据成功')
             return True
         except Exception as e:
-            logger.warning(f"⚠️ 更新失败: {e}\nTrackback:{format_exception(e)}")
+            logger.warning(f"⚠️ _update_data 更新失败: {e}\nTrackback:{format_exception(e)}")
             return False
     
     def _get_stats(self, collection_name: str) -> Dict:
         """获取 Collection 统计信息"""
         if not self._is_available():
+            print(f'[milvus - _get_stats], self._is_available()={self._is_available()}')
             return {"row_count": 0, "error": "Milvus not available"}
         
         try:
             return self._client.get_collection_stats(collection_name)
         except Exception as e:
+            print(f'[milvus - _get_stats], 获取统计信息失败: {e}')
             return {"row_count": 0, "error": str(e)," traceback": format_exception(e)}
     
     def stop(self):
@@ -685,6 +695,8 @@ class RecommendationCacheManager(BaseCollectionManager):
                 "updated_at": now,
                 "dummy_vector": [0.0] 
             }])
+            
+        print(f"✅ 缓存已保存: {symbol} - {analysis_type} (最新日期: {latest_date})")
     
     def clear(self, symbol: Optional[str] = None, analysis_type: Optional[str] = None):
         """清除缓存"""

@@ -272,7 +272,7 @@ Output JSON ONLY (no other text):
 }}"""
 
         try:
-            print(f'ETFAnalyzeSkill._process_batch\n{prompt}')
+            # print(f'ETFAnalyzeSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
@@ -534,7 +534,7 @@ Output JSON:
 }}"""
 
         try:
-            print(f'ETFRankingSkill._process_batch\n{prompt}')
+            # print(f'ETFRankingSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
@@ -704,7 +704,7 @@ Format: YYYY-MM-DD|O|H|L|C|V
 }}"""
 
         try:
-            print(f'ETFDeepAnalyzeSkill._process_batch\n{prompt}')
+            # print(f'ETFDeepAnalyzeSkill._process_batch\n{prompt}')
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
