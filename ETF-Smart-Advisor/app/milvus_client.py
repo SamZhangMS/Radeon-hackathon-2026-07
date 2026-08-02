@@ -623,6 +623,13 @@ class RecommendationCacheManager(BaseCollectionManager):
         schema.add_field(field_name="result", datatype=DataType.JSON)
         schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=30)
         schema.add_field(field_name="updated_at", datatype=DataType.VARCHAR, max_length=30)
+        
+        schema.add_field(
+            field_name="dummy_vector", 
+            datatype=DataType.FLOAT_VECTOR, 
+            dim=1  # 最小维度
+        )
+                
         return schema
     
     def _create_index_params(self):
@@ -633,6 +640,14 @@ class RecommendationCacheManager(BaseCollectionManager):
         index_params = self.connection._client.prepare_index_params()
         index_params.add_index(field_name="symbol", index_type="INVERTED")
         index_params.add_index(field_name="analysis_type", index_type="INVERTED")
+        
+        index_params.add_index(
+            field_name="dummy_vector",
+            metric_type="L2",
+            index_type="FLAT"
+        )
+
+
         return index_params
     
     def get(self, symbol: str, analysis_type: str) -> Optional[Dict]:
@@ -667,7 +682,8 @@ class RecommendationCacheManager(BaseCollectionManager):
                 "latest_date": latest_date,
                 "result": result,
                 "created_at": now,
-                "updated_at": now
+                "updated_at": now,
+                "dummy_vector": [0.0] 
             }])
     
     def clear(self, symbol: Optional[str] = None, analysis_type: Optional[str] = None):
@@ -711,6 +727,13 @@ class FeedbackManager(BaseCollectionManager):
         schema.add_field(field_name="user_comment", datatype=DataType.VARCHAR, max_length=500)
         schema.add_field(field_name="accuracy", datatype=DataType.FLOAT)
         schema.add_field(field_name="metadata", datatype=DataType.JSON)
+                
+        schema.add_field(
+            field_name="dummy_vector", 
+            datatype=DataType.FLOAT_VECTOR, 
+            dim=1
+        )
+        
         return schema
     
     def _create_index_params(self):
@@ -721,6 +744,13 @@ class FeedbackManager(BaseCollectionManager):
         index_params.add_index(field_name="symbol", index_type="INVERTED")
         index_params.add_index(field_name="timestamp", index_type="INVERTED")
         index_params.add_index(field_name="user_rating", index_type="INVERTED")
+        
+        index_params.add_index(
+            field_name="dummy_vector",
+            metric_type="L2",
+            index_type="FLAT"
+        )
+                
         return index_params
     
     def insert_feedback(self, feedback: Dict) -> bool:
@@ -739,6 +769,8 @@ class FeedbackManager(BaseCollectionManager):
         # 计算准确率（如果未提供）
         if "accuracy" not in feedback:
             feedback["accuracy"] = 0.5
+        
+        feedback["dummy_vector"] = [0.0]
         
         return self.insert([feedback])
     
