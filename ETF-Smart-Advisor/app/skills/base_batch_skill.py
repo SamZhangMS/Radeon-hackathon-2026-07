@@ -20,7 +20,7 @@ from ..llm_client import get_llm_client
 from ..config import LLM_API_CONFIG
 from ..milvus_client import get_milvus_client
 from pymilvus import DataType
-from .utils import format_exception
+from ..utils import format_exception
 
 
 class BaseBatchSkill(BaseSkill):
