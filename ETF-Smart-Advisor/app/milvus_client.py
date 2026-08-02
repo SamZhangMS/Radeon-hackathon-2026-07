@@ -65,8 +65,8 @@ class MilvusConnection:
         self.milvus_data_dir = BASE_DIR / 'data' / "milvus_data.db"
         self.milvus_data_dir.parent.mkdir(parents=True, exist_ok=True)
         
-        if not self.milvus_data_dir.exists():
-            self.milvus_data_dir.touch()
+        # if not self.milvus_data_dir.exists():
+        #     self.milvus_data_dir.touch()
             
         self.milvus_data_path = str(self.milvus_data_dir.absolute())
         
