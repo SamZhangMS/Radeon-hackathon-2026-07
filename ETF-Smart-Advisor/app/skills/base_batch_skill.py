@@ -20,6 +20,7 @@ from ..llm_client import get_llm_client
 from ..config import LLM_API_CONFIG
 from ..milvus_client import get_milvus_client
 from pymilvus import DataType
+from .utils import format_exception
 
 
 class BaseBatchSkill(BaseSkill):
@@ -197,6 +198,7 @@ class BaseBatchSkill(BaseSkill):
     def _ensure_cache_collection(self):
         """确保 Milvus 缓存集合存在"""
         if not self.enable_cache or self._milvus is None:
+            print(f'[BaseBatchSkill._ensure_cache_collection] Cache disabled or Milvus not available')
             return
         try:
             # ✅ 安全检查：确保 _client 存在
@@ -229,7 +231,7 @@ class BaseBatchSkill(BaseSkill):
                 )
                 print(f"   ✅ Created Milvus cache collection: {self._cache_collection}")
         except Exception as e:
-            print(f"   ⚠️ Milvus cache not available: {e}")
+            print(f"   ⚠️ Milvus cache not available: {e}\nTrackback:{format_exception(e)}")
             self.enable_cache = False
     
     def _is_milvus_available(self) -> bool:

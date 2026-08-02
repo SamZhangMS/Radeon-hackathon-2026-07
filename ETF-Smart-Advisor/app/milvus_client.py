@@ -696,7 +696,7 @@ class RecommendationCacheManager(BaseCollectionManager):
                 "dummy_vector": [0.0] 
             }])
             
-        print(f"✅ 缓存已保存: {symbol} - {analysis_type} (最新日期: {latest_date})")
+        print(f"✅ 缓存已保存: {symbol} - {analysis_type} ,result:{result} ,(最新日期: {latest_date})")
     
     def clear(self, symbol: Optional[str] = None, analysis_type: Optional[str] = None):
         """清除缓存"""
