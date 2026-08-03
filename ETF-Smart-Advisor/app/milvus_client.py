@@ -182,6 +182,26 @@ class MilvusConnection:
             return []
         
         try:
+            # ✅ 确保 Collection 已加载
+            if not self._client.get_collection_stats(collection_name).get("row_count", 0) > 0:
+                # 如果 Collection 为空，直接返回空列表
+                return []
+            
+            # ✅ 加载 Collection（如果未加载）
+            try:
+                # 检查是否已加载
+                stats = self._client.get_collection_stats(collection_name)
+                # 如果 stats 包含错误或未加载，尝试加载
+            except Exception:
+                # 尝试加载
+                try:
+                    self._client.load_collection(collection_name)
+                    print(f"[milvus - _query_data] Loaded collection: {collection_name}")
+                except Exception as load_e:
+                    print(f"[milvus - _query_data] Failed to load collection: {load_e}")
+                    # 如果加载失败，返回空列表
+                    return []
+            
             return self._client.query(
                 collection_name=collection_name,
                 filter=expr,
@@ -189,8 +209,24 @@ class MilvusConnection:
                 limit=limit
             )
         except Exception as e:
-            print(f'[milvus - _query_data], _query_data 查询失败: {e}\nTrackback:{format_exception(e)}')
-            return []
+            # 如果是 Collection 未加载的错误，尝试加载后重试
+            if "state 'released'" in str(e) or "call load()" in str(e):
+                try:
+                    self._client.load_collection(collection_name)
+                    print(f"[milvus - _query_data] Loaded collection on retry: {collection_name}")
+                    # 重试查询
+                    return self._client.query(
+                        collection_name=collection_name,
+                        filter=expr,
+                        output_fields=output_fields,
+                        limit=limit
+                    )
+                except Exception as retry_e:
+                    print(f'[milvus - _query_data] Retry failed: {retry_e}')
+                    return []
+            else:
+                print(f'[milvus - _query_data], _query_data 查询失败: {e}\nTrackback:{format_exception(e)}')
+                return []
     
     def _delete_data(self, collection_name: str, expr: str) -> bool:
         """删除数据"""
@@ -677,8 +713,20 @@ class RecommendationCacheManager(BaseCollectionManager):
         now = datetime.now().isoformat()
         expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
         
-        existing = self.query(expr, ["id"], limit=1)
-        
+        existing = None # self.query(expr, ["id"], limit=1)
+        try:
+        # 尝试查询，如果失败则加载
+            existing = self.query(expr, ["id"], limit=1)
+        except Exception as e:
+            if "state 'released'" in str(e) or "call load()" in str(e):
+                # 加载 Collection
+                self.connection._client.load_collection(self.collection_name)
+                print(f"[RecommendationCacheManager] Loaded collection: {self.collection_name}")
+                # 重试查询
+                existing = self.query(expr, ["id"], limit=1)
+            else:
+                raise
+            
         if existing:
             self.update(expr, {
                 "latest_date": latest_date,
