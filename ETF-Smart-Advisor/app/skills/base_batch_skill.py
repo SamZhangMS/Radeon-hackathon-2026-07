@@ -403,7 +403,7 @@ class BaseBatchSkill(BaseSkill):
                         except:
                             continue
         except Exception as e:
-            print(f"      ⚠️ _get_data_latest_date error: {e}")
+            print(f"      ⚠️ _get_data_latest_date error: {e}\nTrackback:{format_exception(e)}")
         
         return None
     
