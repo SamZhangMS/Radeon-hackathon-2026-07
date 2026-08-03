@@ -520,6 +520,7 @@ class BaseBatchSkill(BaseSkill):
     
     def _update_cache_with_selected(self, batch: List[str], selected_symbols: Set[str]):
         """更新缓存：只保留选中基金的数据"""
+        
         with self._cache_lock:
             for sym in batch:
                 if sym not in selected_symbols:

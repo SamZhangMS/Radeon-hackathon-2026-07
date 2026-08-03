@@ -213,7 +213,7 @@ Tasks:
 Output JSON:
 {
     "scoring_system": {"dimensions": [{"name": "Trend", "weight": 0.35}, ...]},
-    "scores": [{"symbol": "Symbol", "score": Score, "signal": "buy/hold/sell", "reason": "Reason"}]
+    "scores": [{"symbol": "Symbol", "score": 0-100 integer, "signal": "buy/hold/sell", "reason": "Reason"}]
 }"""
     
     def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
