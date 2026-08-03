@@ -81,7 +81,7 @@ download_if_missing "$TRITON_WHEEL"
 
 echo "  Installing PyTorch components..."
 pip install "$PYTORCH_WHEEL" "$TORCHVISION_WHEEL" "$TORCHAUDIO_WHEEL" "$TRITON_WHEEL"
-pip install causal-conv1d --find-links https://download.pytorch.org/whl/rocm5.6/torch_stable.html
+# pip install causal-conv1d --find-links https://download.pytorch.org/whl/rocm5.6/torch_stable.html
 
 # 8. Verify PyTorch
 echo ""
