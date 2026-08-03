@@ -336,7 +336,7 @@ async def get_top_recommendations_v2(force_update: bool = False):
         
         return {
             "status": "success",
-            "data": result,
+            "data": result.get("data", result),
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:

@@ -356,11 +356,12 @@ class ETFAdvisorAgent:
         try:
             result = self.advisor2.get_top_recommendations(force_update=force_update)
 
-            return {
-                "status": "success",
-                "data": result,
-                "timestamp": datetime.now().isoformat()
-            }
+            return result
+            # return {
+            #     "status": "success",
+            #     "data": result,
+            #     "timestamp": datetime.now().isoformat()
+            # }
         except Exception as e:
             print(f"get_top_recommendations_v2 error. Exception:{e}\nTrackback:{format_exception(e)}")
             return {"success": False, "error": str(e)}

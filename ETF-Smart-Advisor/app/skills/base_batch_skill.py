@@ -365,6 +365,7 @@ class BaseBatchSkill(BaseSkill):
                         with self._cache_lock:
                             self._data_cache[symbol] = data
             
+            print(f"[DEBUG] Checking cache for {symbol}, data: {data is not None}")
             # 检查缓存
             if cache_check_func:
                 result, hit = cache_check_func(item, data)
@@ -372,14 +373,17 @@ class BaseBatchSkill(BaseSkill):
                 result, hit = self._check_cache_for_item(symbol, data)
             
             if hit and result:
+                print(f"[DEBUG] Cache HIT for {symbol}")
                 cached_results.append(result)
                 continue
             
+            print(f"[DEBUG] Cache MISS for {symbol}")
             # 需要分析
             item_data = self._create_item_from_data(symbol, data) if data is not None else item
             if item_data:
                 to_analyze.append(item_data)
         
+        print(f"[BaseBatchSkill._process_batch_with_cache] To analyze: {to_analyze}, Cached: {len(cached_results)}")
         # 如果全部命中缓存
         if not to_analyze and cached_results:
             print(f"      ✅ All {len(cached_results)} results from cache")

@@ -777,6 +777,16 @@ Format: YYYY-MM-DD|O|H|L|C|V
                     data.get('rank_score', 0) * 0.25 +
                     data.get('quick_score', 0) * 0.25
                 )
+                
+                rec = data.get('recommendation', '').lower()
+                if rec not in ['buy', 'sell', 'hold']:
+                    if 'buy' in rec or 'bullish' in rec:
+                        data['recommendation'] = 'buy'
+                    elif 'sell' in rec or 'bearish' in rec:
+                        data['recommendation'] = 'sell'
+                    else:
+                        data['recommendation'] = 'hold'
+                        
                 return [data]
                 
         except Exception as e:
