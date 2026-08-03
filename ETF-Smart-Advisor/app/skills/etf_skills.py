@@ -18,6 +18,7 @@ from .base_skill import BaseSkill
 from .base_batch_skill import BaseBatchSkill
 from ..data_fetcher import ETFDataFetcher
 from ..llm_client import get_llm_client
+from ..utils import format_exception
 
 
 class ETFDataLoader:
@@ -282,9 +283,9 @@ Output JSON ONLY (no other text):
                 temperature=0.3,
                 enable_thinking=False
             )
-            print(f'ETFAnalyzeSkill._process_batch response: \n{response}')
+            print(f'\nETFAnalyzeSkill._process_batch response: \n{response}')
             results = self._parse_response(response, batch_symbols)
-            return results if results else []
+            return results 
         except Exception as e:
             print(f"      ⚠️ LLM analysis failed: {e}")
             return []    
@@ -292,10 +293,15 @@ Output JSON ONLY (no other text):
         """Parse LLM response with symbol matching"""
         results = []
         
+        print(f"[DEBUG] _parse_response: response length={len(response)}")
+        print(f"[DEBUG] _parse_response: batch_symbols={batch_symbols[:5] if batch_symbols else None}...")
+    
         try:
             data = self._extract_json(response)
+            print(f"[DEBUG] _parse_response: extracted data={data is not None}")
             if data:
                 scores = data.get('scores', [])
+                print(f"[DEBUG] _parse_response: scores count={len(scores)}")
                 if scores:
                     # ✅ 验证并补全 symbol
                     for idx, item in enumerate(scores):
@@ -309,8 +315,10 @@ Output JSON ONLY (no other text):
                                 except (ValueError, TypeError):
                                     item['score'] = 50
                             results.append(item)
+                            print(f"[DEBUG] _parse_response: added {item.get('symbol')} score={item.get('score')}")
                     
                     if results:
+                        print(f"[DEBUG] _parse_response: returning {len(results)} results")
                         return results
                 
                 # ✅ 如果返回的是单个对象，不是数组
@@ -601,7 +609,7 @@ Output JSON:
             return [r for r in rankings if r.get('symbol')]
                 
         except Exception as e:
-            print(f"   ⚠️ Ranking failed: {e}")
+            print(f"   ⚠️ Ranking failed: {e}\nTrackback:{format_exception(e)}")
             return []
     
     def _fallback(self, batch: List[Dict], **kwargs) -> List[Dict]:
