@@ -51,8 +51,23 @@ class ETFDataLoader:
         """获取数据的最新日期"""
         if df is None or df.empty:
             return None
+        
+        # ✅ 检查索引是否为日期类型
+        if isinstance(df.index, pd.DatetimeIndex):
+            return df.index[-1].strftime('%Y-%m-%d')
+        
+        # ✅ 检查 'date' 列
         if 'date' in df.columns:
             return df['date'].iloc[-1].strftime('%Y-%m-%d')
+        
+        # ✅ 检查其他可能的日期列
+        for col in df.columns:
+            if 'date' in col.lower() or 'time' in col.lower():
+                try:
+                    return pd.to_datetime(df[col].iloc[-1]).strftime('%Y-%m-%d')
+                except:
+                    continue
+        
         return None
     
     def get_summary(self, df: pd.DataFrame, days: int = 20) -> str:

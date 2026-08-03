@@ -382,13 +382,29 @@ class BaseBatchSkill(BaseSkill):
     
     def _get_data_latest_date(self, data: Any) -> Optional[str]:
         """获取数据的最新日期，子类可重写"""
+        if data is None:
+            return None
+        
         try:
-            
             if isinstance(data, pd.DataFrame) and not data.empty:
+                # ✅ 检查索引是否为日期类型
+                if isinstance(data.index, pd.DatetimeIndex):
+                    return data.index[-1].strftime('%Y-%m-%d')
+                
+                # ✅ 检查 'date' 列
                 if 'date' in data.columns:
                     return data['date'].iloc[-1].strftime('%Y-%m-%d')
-        except:
-            pass
+                
+                # ✅ 检查其他可能的日期列
+                for col in data.columns:
+                    if 'date' in col.lower() or 'time' in col.lower():
+                        try:
+                            return pd.to_datetime(data[col].iloc[-1]).strftime('%Y-%m-%d')
+                        except:
+                            continue
+        except Exception as e:
+            print(f"      ⚠️ _get_data_latest_date error: {e}")
+        
         return None
     
     def _process_batch_with_cache(
