@@ -614,7 +614,15 @@ class BaseBatchSkill(BaseSkill):
         return results
     
     def _sort_results(self, results: List[Dict]) -> List[Dict]:
-        return sorted(results, key=lambda x: x.get('score', 0), reverse=True)
+        def get_score(item):
+            score = item.get('score', 0)
+            # ✅ 确保 score 是数值类型
+            try:
+                return int(score)
+            except (ValueError, TypeError):
+                return 0
+        return sorted(results, key=get_score, reverse=True)
+        # return sorted(results, key=lambda x: x.get('score', 0), reverse=True)
     
     def _get_symbol(self, item: Any) -> str:
         if isinstance(item, str):

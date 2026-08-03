@@ -295,6 +295,12 @@ Output JSON ONLY (no other text):
             if data:
                 scores = data.get('scores', [])
                 if scores:
+                    for item in scores:
+                        if 'score' in item:
+                            try:
+                                item['score'] = int(item['score'])
+                            except (ValueError, TypeError):
+                                item['score'] = 50  # 默认值
                     return scores
             
             # ✅ 方法2: 尝试从响应中提取多个 JSON 对象
@@ -304,6 +310,10 @@ Output JSON ONLY (no other text):
                 try:
                     item = json.loads(match)
                     if 'symbol' in item and 'score' in item:
+                        try:
+                            item['score'] = int(item['score'])
+                        except (ValueError, TypeError):
+                            item['score'] = 50
                         results.append(item)
                 except:
                     continue
@@ -320,13 +330,17 @@ Output JSON ONLY (no other text):
                 signals = re.findall(signal_pattern, response)
                 
                 for i in range(min(len(symbols), len(scores))):
+                    try:
+                        score_val = int(scores[i]) if scores[i].isdigit() else 50
+                    except (ValueError, TypeError):
+                        score_val = 50
+                    
                     results.append({
                         'symbol': symbols[i],
-                        'score': int(scores[i]) if scores[i].isdigit() else 50,
+                        'score': score_val,
                         'signal': signals[i] if i < len(signals) else 'hold',
                         'reason': 'Parsed from response'
-                    })
-            
+                    })           
         except Exception as e:
             print(f"      ⚠️ Parse error: {e}")
         
