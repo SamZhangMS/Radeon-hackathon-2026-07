@@ -178,8 +178,15 @@ class MilvusConnection:
                     output_fields: List[str], limit: int = 1000) -> List[Dict]:
         """查询数据"""
         if not self._is_available():
-            print(f'[milvus - _query_data], self._is_available()={self._is_available()}, expr={expr}')
-            return []
+            # 尝试重新初始化连接
+            try:
+                self._init_milvus_lite()
+                if not self._is_available():
+                    print(f'[milvus - _query_data], self._is_available()={self._is_available()}, expr={expr}')
+                    return []
+            except Exception as e:
+                print(f'[milvus - _query_data], 重新连接失败: {e}')
+                return []
         
         try:
             # ✅ 确保 Collection 已加载
@@ -201,6 +208,13 @@ class MilvusConnection:
                     print(f"[milvus - _query_data] Failed to load collection: {load_e}")
                     # 如果加载失败，返回空列表
                     return []
+            
+            try:
+            # 尝试加载 Collection
+                self._client.load_collection(collection_name)
+            except Exception as e:
+                # 如果已加载会抛出异常，忽略
+                pass
             
             return self._client.query(
                 collection_name=collection_name,
@@ -243,19 +257,40 @@ class MilvusConnection:
             return False
     
     def _update_data(self, collection_name: str, expr: str, data: Dict) -> bool:
-        """更新数据"""
+        """更新数据 - 使用 upsert 替代 update"""
         if not self._is_available():
             print(f'[milvus - _update_data], self._is_available()={self._is_available()}, expr={expr}')
             return False
         
         try:
-            self._client.update(
-                collection_name=collection_name,
-                filter=expr,
-                data=data
-            )
-            print(f'[milvus - _update_data], 更新数据成功')
+            # 1. 先查询要更新的数据
+            results = self._query_data(collection_name, expr, list(data.keys()), limit=1)
+            if not results:
+                print(f'[milvus - _update_data] 未找到要更新的数据: {expr}')
+                return False
+            
+            # 2. 获取主键
+            primary_key = results[0].get('id')
+            if primary_key is None:
+                print(f'[milvus - _update_data] 无法获取主键')
+                return False
+            
+            # 3. 删除旧数据
+            self._client.delete(collection_name=collection_name, filter=expr)
+            
+            # 4. 插入新数据（包含更新后的字段）
+            # 合并原有数据和更新数据
+            updated_data = {**results[0], **data}
+            # 移除 id（让 auto_id 重新生成，或者保留原 id）
+            # 如果 id 是自动生成的，需要移除
+            if 'id' in updated_data:
+                # 保留 id，但确保它是正确的类型
+                pass
+            
+            self._client.insert(collection_name, [updated_data])
+            print(f'[milvus - _update_data] 更新数据成功')
             return True
+            
         except Exception as e:
             logger.warning(f"⚠️ _update_data 更新失败: {e}\nTrackback:{format_exception(e)}")
             return False
@@ -663,8 +698,8 @@ class RecommendationCacheManager(BaseCollectionManager):
             enable_dynamic_field=True
         )
         schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
-        schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20)
-        schema.add_field(field_name="analysis_type", datatype=DataType.VARCHAR, max_length=50)
+        schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20, is_primary=True)
+        schema.add_field(field_name="analysis_type", datatype=DataType.VARCHAR, max_length=50, is_primary=True)
         schema.add_field(field_name="latest_date", datatype=DataType.VARCHAR, max_length=20)
         schema.add_field(field_name="result", datatype=DataType.JSON)
         schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=30)
@@ -713,36 +748,43 @@ class RecommendationCacheManager(BaseCollectionManager):
         now = datetime.now().isoformat()
         expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
         
-        existing = None # self.query(expr, ["id"], limit=1)
-        try:
-        # 尝试查询，如果失败则加载
-            existing = self.query(expr, ["id"], limit=1)
-        except Exception as e:
-            if "state 'released'" in str(e) or "call load()" in str(e):
-                # 加载 Collection
-                self.connection._client.load_collection(self.collection_name)
-                print(f"[RecommendationCacheManager] Loaded collection: {self.collection_name}")
-                # 重试查询
-                existing = self.query(expr, ["id"], limit=1)
-            else:
-                raise
+        self.connection._client.upsert(
+        collection_name=self.collection_name,
+        data=[{
+            "symbol": symbol,           # 主键1
+            "analysis_type": analysis_type,  # 主键2
+            "latest_date": latest_date,
+            "result": result,
+            "created_at": now,
+            "updated_at": now,
+        }]
+    )
+        # try:
+        #     # ✅ 确保 Collection 已加载
+        #     try:
+        #         self.connection._client.load_collection(self.collection_name)
+        #     except Exception:
+        #         pass
             
-        if existing:
-            self.update(expr, {
-                "latest_date": latest_date,
-                "result": result,
-                "updated_at": now
-            })
-        else:
-            self.insert([{
-                "symbol": symbol,
-                "analysis_type": analysis_type,
-                "latest_date": latest_date,
-                "result": result,
-                "created_at": now,
-                "updated_at": now,
-                "dummy_vector": [0.0] 
-            }])
+        #     # 删除旧数据
+        #     self.delete(expr)
+        # except Exception as e:
+        #     print(f"[RecommendationCacheManager.save] 删除旧数据失败: {e}")
+        
+        # # 插入新数据
+        # try:
+        #     self.insert([{
+        #         "symbol": symbol,
+        #         "analysis_type": analysis_type,
+        #         "latest_date": latest_date,
+        #         "result": result,
+        #         "created_at": now,
+        #         "updated_at": now,
+        #         "dummy_vector": [0.0]
+        #     }])
+        #     print(f"✅ 缓存已保存: {symbol} - {analysis_type} (最新日期: {latest_date})")
+        # except Exception as e:
+        #     print(f"❌ 缓存保存失败: {symbol} - {analysis_type}: {e}")
             
         print(f"✅ 缓存已保存: {symbol} - {analysis_type} ,result:{result} ,(最新日期: {latest_date})")
     
