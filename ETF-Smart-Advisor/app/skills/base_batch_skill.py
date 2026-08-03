@@ -385,6 +385,7 @@ class BaseBatchSkill(BaseSkill):
         # 分析需要处理的
         if to_analyze:
             results = self._process_batch(to_analyze, **kwargs)
+            print(f'[_process_batch_with_cache] results:{results}')
             if results:
                 # 保存到缓存
                 for r in results:

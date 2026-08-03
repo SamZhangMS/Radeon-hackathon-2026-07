@@ -291,17 +291,17 @@ Output JSON ONLY (no other text):
         
         try:
             # ✅ 方法1: 尝试直接解析 JSON
-            data = self._extract_json(response)
-            if data:
-                scores = data.get('scores', [])
-                if scores:
-                    for item in scores:
-                        if 'score' in item:
-                            try:
-                                item['score'] = int(item['score'])
-                            except (ValueError, TypeError):
-                                item['score'] = 50  # 默认值
-                    return scores
+            # data = self._extract_json(response)
+            # if data:
+            #     scores = data.get('scores', [])
+            #     if scores:
+            #         for item in scores:
+            #             if 'score' in item:
+            #                 try:
+            #                     item['score'] = int(item['score'])
+            #                 except (ValueError, TypeError):
+            #                     item['score'] = 50  # 默认值
+            #         return scores
             
             # ✅ 方法2: 尝试从响应中提取多个 JSON 对象
             json_pattern = r'\{[^{}]*"symbol"[^{}]*"score"[^{}]*\}'
@@ -558,7 +558,8 @@ Output JSON:
             
             print(f'ETFRankingSkill._process_batch\n{response}')
             data = self._extract_json(response)
-            return data.get('rankings', []) if data else []
+            # return data.get('rankings', []) if data else []
+            return data
                 
         except Exception as e:
             print(f"   ⚠️ Ranking failed: {e}")
