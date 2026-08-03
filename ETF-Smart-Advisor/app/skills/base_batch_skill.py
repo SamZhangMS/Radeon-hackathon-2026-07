@@ -129,16 +129,75 @@ class BaseBatchSkill(BaseSkill):
         return len(text) // 4 + 1
         
     def _extract_json(self, response: str) -> Optional[Dict]:
-        """从响应中提取 JSON"""
+        """从响应中提取 JSON - 支持不完整JSON"""
         if not response:
             return None
+        
+        # ✅ 方法1: 尝试直接解析完整JSON
         try:
-            # 尝试找到 JSON 对象
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                return json.loads(json_match.group())
+            return json.loads(response.strip())
         except:
             pass
+        
+        # ✅ 方法2: 尝试提取到最后一个完整的对象
+        try:
+            # 找到第一个 {
+            start = response.find('{')
+            if start == -1:
+                return None
+            
+            # 从前往后扫描，找到最后一个完整的 }
+            brace_count = 0
+            last_complete_end = -1
+            for i in range(start, len(response)):
+                char = response[i]
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        last_complete_end = i
+            
+            if last_complete_end != -1:
+                # 提取到最后一个完整的 } 为止
+                json_str = response[start:last_complete_end+1]
+                try:
+                    return json.loads(json_str)
+                except:
+                    pass
+        except:
+            pass
+        
+        # ✅ 方法3: 尝试补全不完整的JSON
+        try:
+            # 找到第一个 {
+            start = response.find('{')
+            if start == -1:
+                return None
+            
+            # 获取从 { 到末尾的内容
+            partial = response[start:]
+            
+            # 检查是否以 { 开头
+            if partial.startswith('{'):
+                # 尝试补全
+                # 1. 补全缺失的 ]
+                if partial.count('[') > partial.count(']'):
+                    partial += ']'
+                # 2. 补全缺失的 }
+                if partial.count('{') > partial.count('}'):
+                    partial += '}'
+                # 3. 补全缺失的 "
+                if partial.count('"') % 2 != 0:
+                    partial += '"'
+                
+                try:
+                    return json.loads(partial)
+                except:
+                    pass
+        except:
+            pass
+        
         return None
     
     def _extract_json_array(self, response: str) -> Optional[List]:
