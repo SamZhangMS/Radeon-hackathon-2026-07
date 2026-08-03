@@ -454,8 +454,10 @@ class BaseBatchSkill(BaseSkill):
             print(f'[_process_batch_with_cache] results:{results}')
             if results:
                 symbol_to_item = {item.get('symbol'): item for item in to_analyze if item.get('symbol')}
+                print(f'[_process_batch_with_cache] symbol_to_item:{symbol_to_item}')
                 # 保存到缓存
                 for r in results:
+                    print(f'[_process_batch_with_cache] Saving cache for {r}')
                     symbol = r.get('symbol')
                     if not symbol:
                         # 尝试从 to_analyze 中匹配
@@ -471,6 +473,7 @@ class BaseBatchSkill(BaseSkill):
                         if item_data:
                             # 尝试从 item_data 获取日期
                             latest_date = item_data.get('_latest_date')
+                            
                             if not latest_date:
                                 data = self.get_loaded_data(symbol)
                                 if data is None:
@@ -482,6 +485,7 @@ class BaseBatchSkill(BaseSkill):
                                 data = self._data_cache.get(symbol)
                             latest_date = self._get_data_latest_date(data)
                         
+                        print(f'[_process_batch_with_cache] latest_date:{latest_date}')
                         if latest_date:
                             self._save_cached_result(symbol, latest_date, r)
                 
