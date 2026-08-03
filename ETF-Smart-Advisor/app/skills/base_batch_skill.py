@@ -348,6 +348,7 @@ class BaseBatchSkill(BaseSkill):
         # 分离需要分析的和可以从缓存获取的
         to_analyze = []
         cached_results = []
+        symbol_to_item = {}
         
         for item in batch:
             symbol = self._get_symbol(item)
@@ -357,10 +358,12 @@ class BaseBatchSkill(BaseSkill):
             # 获取数据
             data = self.get_loaded_data(symbol)
             if data is None:
-                data = self._load_item_data(symbol, **kwargs)
-                if data is not None:
-                    with self._cache_lock:
-                        self._data_cache[symbol] = data
+                data = self._data_cache.get(symbol)
+                if data is None:
+                    data = self._load_item_data(symbol, **kwargs)
+                    if data is not None:
+                        with self._cache_lock:
+                            self._data_cache[symbol] = data
             
             # 检查缓存
             if cache_check_func:
@@ -387,16 +390,43 @@ class BaseBatchSkill(BaseSkill):
             results = self._process_batch(to_analyze, **kwargs)
             print(f'[_process_batch_with_cache] results:{results}')
             if results:
+                symbol_to_item = {item.get('symbol'): item for item in to_analyze if item.get('symbol')}
                 # 保存到缓存
                 for r in results:
                     symbol = r.get('symbol')
+                    if not symbol:
+                        # 尝试从 to_analyze 中匹配
+                        idx = results.index(r)
+                        if idx < len(to_analyze):
+                            symbol = to_analyze[idx].get('symbol')
+                            if symbol:
+                                r['symbol'] = symbol
+                    
                     if symbol:
-                        data = self.get_loaded_data(symbol)
-                        latest_date = self._get_data_latest_date(data)
+                        # ✅ 从 symbol_to_item 获取数据
+                        item_data = symbol_to_item.get(symbol)
+                        if item_data:
+                            # 尝试从 item_data 获取日期
+                            latest_date = item_data.get('_latest_date')
+                            if not latest_date:
+                                data = self.get_loaded_data(symbol)
+                                if data is None:
+                                    data = self._data_cache.get(symbol)
+                                latest_date = self._get_data_latest_date(data)
+                        else:
+                            data = self.get_loaded_data(symbol)
+                            if data is None:
+                                data = self._data_cache.get(symbol)
+                            latest_date = self._get_data_latest_date(data)
+                        
                         if latest_date:
                             self._save_cached_result(symbol, latest_date, r)
+                
                 results.extend(cached_results)
                 return results
+            else:
+                # ✅ 分析失败，返回缓存结果
+                return cached_results
         
         return cached_results
     

@@ -235,9 +235,11 @@ Output JSON:
     
     def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
         if isinstance(data, pd.DataFrame):
+            latest_date = self._get_data_latest_date(data)
             return {
                 'symbol': symbol,
-                'full_data': self.data_loader.get_summary(data, 20)
+                'full_data': self.data_loader.get_summary(data, 20),
+                '_latest_date': latest_date  # ✅ 保存日期到 item
             }
         return {'symbol': symbol}
     
@@ -256,6 +258,7 @@ Output JSON:
         if not batch_data:
             return []
         
+        batch_symbols = [item.get('symbol') for item in batch if item.get('symbol')]
         data_text = "\n".join(batch_data)
         prompt = f"""Analyze the following {len(batch_data)} ETFs' raw OHLCV data.
 
@@ -280,69 +283,97 @@ Output JSON ONLY (no other text):
                 enable_thinking=False
             )
             print(f'ETFAnalyzeSkill._process_batch response: \n{response}')
-            results = self._parse_response(response)
+            results = self._parse_response(response, batch_symbols)
             return results if results else []
         except Exception as e:
             print(f"      ⚠️ LLM analysis failed: {e}")
             return []    
-    def _parse_response(self, response: str) -> List[Dict]:
-        """Parse LLM response - 增强解析逻辑"""
+    def _parse_response(self, response: str, batch_symbols: List[str] = None) -> List[Dict]:
+        """Parse LLM response with symbol matching"""
         results = []
         
         try:
-            # ✅ 方法1: 尝试直接解析 JSON
-            # data = self._extract_json(response)
-            # if data:
-            #     scores = data.get('scores', [])
-            #     if scores:
-            #         for item in scores:
-            #             if 'score' in item:
-            #                 try:
-            #                     item['score'] = int(item['score'])
-            #                 except (ValueError, TypeError):
-            #                     item['score'] = 50  # 默认值
-            #         return scores
-            
-            # ✅ 方法2: 尝试从响应中提取多个 JSON 对象
-            json_pattern = r'\{[^{}]*"symbol"[^{}]*"score"[^{}]*\}'
-            matches = re.findall(json_pattern, response, re.DOTALL)
-            for match in matches:
-                try:
-                    item = json.loads(match)
-                    if 'symbol' in item and 'score' in item:
-                        try:
-                            item['score'] = int(item['score'])
-                        except (ValueError, TypeError):
-                            item['score'] = 50
-                        results.append(item)
-                except:
-                    continue
-            
-            # ✅ 方法3: 尝试解析不完整的 JSON
-            if not results:
-                # 查找所有 symbol 和 score 对
-                symbol_pattern = r'"symbol"\s*:\s*"([^"]+)"'
-                score_pattern = r'"score"\s*:\s*(\d+)'
-                signal_pattern = r'"signal"\s*:\s*"([^"]+)"'
+            data = self._extract_json(response)
+            if data:
+                scores = data.get('scores', [])
+                if scores:
+                    # ✅ 验证并补全 symbol
+                    for idx, item in enumerate(scores):
+                        if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
+                            item['symbol'] = batch_symbols[idx]
+                        
+                        if item.get('symbol'):
+                            if 'score' in item:
+                                try:
+                                    item['score'] = int(item['score'])
+                                except (ValueError, TypeError):
+                                    item['score'] = 50
+                            results.append(item)
+                    
+                    if results:
+                        return results
                 
-                symbols = re.findall(symbol_pattern, response)
-                scores = re.findall(score_pattern, response)
-                signals = re.findall(signal_pattern, response)
+                # ✅ 如果返回的是单个对象，不是数组
+                if 'symbol' in data and 'score' in data:
+                    data['score'] = int(data['score']) if 'score' in data else 50
+                    return [data]
+        
+                if isinstance(data, list):
+                    for idx, item in enumerate(data):
+                        if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
+                            item['symbol'] = batch_symbols[idx]
+                        if item.get('symbol'):
+                            results.append(item)
+                    return results
                 
-                for i in range(min(len(symbols), len(scores))):
+        except Exception as e:
+            print(f"      ⚠️ Parse error: {e}")
+        
+        # ✅ 如果 batch_symbols 可用，尝试从响应中提取 symbol 和 score 对
+        if batch_symbols:
+            symbol_pattern = r'"symbol"\s*:\s*"([^"]+)"'
+            score_pattern = r'"score"\s*:\s*(\d+)'
+            signal_pattern = r'"signal"\s*:\s*"([^"]+)"'
+            
+            symbols = re.findall(symbol_pattern, response)
+            scores = re.findall(score_pattern, response)
+            signals = re.findall(signal_pattern, response)
+            
+            # 如果提取到的 symbols 是完整的，使用它们
+            if symbols and len(symbols) == len(batch_symbols):
+                for i, symbol in enumerate(symbols):
                     try:
-                        score_val = int(scores[i]) if scores[i].isdigit() else 50
+                        score_val = int(scores[i]) if i < len(scores) else 50
                     except (ValueError, TypeError):
                         score_val = 50
                     
                     results.append({
-                        'symbol': symbols[i],
+                        'symbol': symbol,
                         'score': score_val,
                         'signal': signals[i] if i < len(signals) else 'hold',
                         'reason': 'Parsed from response'
-                    })           
-        except Exception as e:
-            print(f"      ⚠️ Parse error: {e}")
+                    })
+                return results
+            
+            # 如果提取失败，使用 batch_symbols 作为 fallback
+            # 尝试从响应中提取 scores 列表
+            score_pattern_all = r'(\d+)\s*[,}\]]'
+            all_scores = re.findall(score_pattern_all, response)
+            
+            if all_scores and len(all_scores) >= len(batch_symbols):
+                for i, symbol in enumerate(batch_symbols):
+                    try:
+                        score_val = int(all_scores[i]) if i < len(all_scores) else 50
+                    except (ValueError, TypeError):
+                        score_val = 50
+                    
+                    results.append({
+                        'symbol': symbol,
+                        'score': min(100, max(0, score_val)),
+                        'signal': 'hold',
+                        'reason': 'Parsed from response (fallback)'
+                    })
+                return results
         
         return results
     
@@ -509,11 +540,12 @@ Output JSON: {"rankings": [{"symbol": "Symbol", "rank_score": Score, "signal": "
         return str(item)
     
     def _create_item_from_data(self, symbol: str, data: Any) -> Optional[Dict]:
-        """从数据创建item"""
         if isinstance(data, pd.DataFrame):
+            latest_date = self._get_data_latest_date(data)
             return {
                 'symbol': symbol,
-                'full_data': self.data_loader.get_summary(data, 60)
+                'full_data': self.data_loader.get_summary(data, 60),
+                '_latest_date': latest_date  # ✅ 保存日期到 item
             }
         return {'symbol': symbol}
     
@@ -534,6 +566,7 @@ Output JSON: {"rankings": [{"symbol": "Symbol", "rank_score": Score, "signal": "
         if not data_text:
             return []
         
+        batch_symbols = [item.get('symbol') for item in batch if item.get('symbol')]
         prompt = f"""
 Please perform fine comparative ranking of the following {len(batch)} ETFs.
 
@@ -558,8 +591,14 @@ Output JSON:
             
             print(f'ETFRankingSkill._process_batch\n{response}')
             data = self._extract_json(response)
-            # return data.get('rankings', []) if data else []
-            return data
+            rankings = data.get('rankings', []) if data else []
+        
+            # ✅ 验证并补全 symbol
+            for idx, item in enumerate(rankings):
+                if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
+                    item['symbol'] = batch_symbols[idx]
+            
+            return [r for r in rankings if r.get('symbol')]
                 
         except Exception as e:
             print(f"   ⚠️ Ranking failed: {e}")
