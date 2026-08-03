@@ -203,7 +203,7 @@ class ETFAnalyzeSkill(BaseBatchSkill):
             batch_size=3, #5,
             max_workers=2,
             timeout=180,
-            output_tokens=500*2,
+            output_tokens=800*2,
             safety_margin=0.75,
             enable_cache=True  # ✅ 启用缓存
         )

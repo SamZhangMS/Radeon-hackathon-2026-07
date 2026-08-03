@@ -35,7 +35,7 @@ class BaseBatchSkill(BaseSkill):
         batch_size: int = 15,
         max_workers: int = 4,
         timeout: int = 60,
-        output_tokens: int = 400,
+        output_tokens: int = 400*2,
         safety_margin: float = 0.75,
         enable_cache: bool = True  # ✅ 新增：是否启用缓存
     ):
