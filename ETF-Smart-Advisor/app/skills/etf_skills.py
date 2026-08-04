@@ -299,7 +299,7 @@ Output JSON ONLY (no other text):
                 temperature=0.3,
                 enable_thinking=False
             )
-            print(f'\nETFAnalyzeSkill._process_batch response: \n{response}')
+            # print(f'\nETFAnalyzeSkill._process_batch response: \n{response}')
             results = self._parse_response(response, batch_symbols)
             return results 
         except Exception as e:
@@ -651,7 +651,7 @@ Output JSON:
                 enable_thinking=False
             )
             
-            print(f'ETFRankingSkill._process_batch\n{response}')
+            # print(f'ETFRankingSkill._process_batch\n{response}')
             data = self._extract_json(response)
             rankings = data.get('rankings', []) if data else []
         

@@ -34,6 +34,8 @@ fi
 python3 -m venv etfadvisorvenv
 source etfadvisorvenv/bin/activate
 
+apt-get update
+apt-get install unzip zip -y
 # 4. Upgrade pip
 echo ""
 echo "⬆️ Upgrading pip..."

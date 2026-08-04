@@ -466,7 +466,7 @@ class BaseBatchSkill(BaseSkill):
             if item_data:
                 to_analyze.append(item_data)
         
-        print(f"[BaseBatchSkill._process_batch_with_cache] To analyze: {to_analyze}, Cached: {len(cached_results)}")
+        print(f"[BaseBatchSkill._process_batch_with_cache] To analyze: len(to_analyze): {len(to_analyze)}, Cached: {len(cached_results)}")
         # 如果全部命中缓存
         if not to_analyze and cached_results:
             print(f"      ✅ All {len(cached_results)} results from cache")
