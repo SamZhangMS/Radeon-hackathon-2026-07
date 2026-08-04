@@ -717,7 +717,7 @@ class RecommendationCacheManager(BaseCollectionManager):
             auto_id=True,
             enable_dynamic_field=True
         )
-        schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+        schema.add_field(field_name="id", datatype=DataType.INT64, auto_id=True)
         schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20, is_primary=True)
         schema.add_field(field_name="analysis_type", datatype=DataType.VARCHAR, max_length=50, is_primary=True)
         schema.add_field(field_name="latest_date", datatype=DataType.VARCHAR, max_length=20)
