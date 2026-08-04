@@ -26,6 +26,7 @@ class InvestmentAdvisor:
     def __init__(self):
         self.predictor = ETFPricePredictor()
         self.fetcher = ETFDataFetcher()
+        self.max_workers = 8 
     
     # ============================================================
     # 主入口
