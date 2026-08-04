@@ -203,7 +203,7 @@ class ETFAnalyzeSkill(BaseBatchSkill):
             batch_size=3, #5,
             max_workers=2,
             timeout=180,
-            output_tokens=800*2,
+            output_tokens=800*3,
             safety_margin=0.75,
             enable_cache=True  ,
             parallel_batches=2 
@@ -563,7 +563,7 @@ class ETFRankingSkill(BaseBatchSkill):
             batch_size=10, #20,
             max_workers=4,
             timeout=60,
-            output_tokens=400*2,
+            output_tokens=800*3,
             safety_margin=0.75,
             parallel_batches=2 
         )
@@ -721,7 +721,7 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
             batch_size=1,
             max_workers=1,
             timeout=120,
-            output_tokens=600*2,
+            output_tokens=600*4,
             safety_margin=0.75,
             parallel_batches=2 
         )
