@@ -514,6 +514,7 @@ class BaseBatchSkill(BaseSkill):
         batch_id = batch.get('batch_id', 0)
         
         try:
+            timer0=time.time()
             prompt = self._build_batch_prompt(prompts, symbols, **kwargs)
             
             # ✅ 确保 prompt 是字符串
@@ -548,6 +549,7 @@ class BaseBatchSkill(BaseSkill):
                             if latest_date:
                                 self._save_cached_result(symbol, latest_date, r)
             
+            print(f"   ✅ Batch {batch_id}: Processed {len(results)} results. time taken: {time.time()-timer0:.2f}s")
             return results if results else []
             
         except Exception as e:
