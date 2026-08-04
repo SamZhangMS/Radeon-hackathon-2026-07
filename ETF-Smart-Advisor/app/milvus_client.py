@@ -132,12 +132,15 @@ class MilvusConnection:
     
     def _ensure_collection(self, collection_name: str, schema_func, index_func=None):
         """确保 Collection 存在"""
-        if self._client is None: # if not self._is_available():
+        # ✅ 直接检查 client 是否存在，不依赖 _is_available()
+        if self._client is None:
             print(f'[milvus - _ensure_collection], self._client is None')
             return False
         
         try:
+            # ✅ 检查 collection 是否存在
             if self._client.has_collection(collection_name):
+                print(f'[milvus - _ensure_collection] Collection {collection_name} already exists')
                 return True
             
             # 创建 Schema
@@ -145,12 +148,13 @@ class MilvusConnection:
             if schema is None:
                 print(f'[milvus - _ensure_collection], schema is None')
                 return False
-        
+            
             # 创建索引
             index_params = None
             if index_func:
                 index_params = index_func()
             
+            print(f'[milvus - _ensure_collection] Creating collection: {collection_name}')
             self._client.create_collection(
                 collection_name=collection_name,
                 schema=schema,
@@ -160,7 +164,7 @@ class MilvusConnection:
             return True
             
         except Exception as e:
-            logger.warning(f"⚠️ 创建 Collection 失败: {e}\nTrackback:{format_exception(e)}")
+            logger.warning(f"⚠️ 创建 Collection {collection_name} 失败: {e}")
             return False
     
     def _insert_data(self, collection_name: str, data: List[Dict]) -> bool:
@@ -341,7 +345,12 @@ class BaseCollectionManager(ABC):
     def __init__(self, collection_name: str):
         self.connection = MilvusConnection()
         self.collection_name = collection_name
-        self._ensure_collection()
+        print(f'[BaseCollectionManager.__init__] Ensuring collection: {collection_name}')
+        try:
+            result = self._ensure_collection()
+            print(f'[BaseCollectionManager.__init__] Collection {collection_name} ensure result: {result}')
+        except Exception as e:
+            logger.warning(f"⚠️ 确保 Collection {collection_name} 失败: {e}\nTrackback:{format_exception(e)}")
     
     @abstractmethod
     def _create_schema(self):
