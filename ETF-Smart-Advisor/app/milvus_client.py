@@ -717,9 +717,9 @@ class RecommendationCacheManager(BaseCollectionManager):
             auto_id=True,
             enable_dynamic_field=True
         )
-        schema.add_field(field_name="id", datatype=DataType.INT64, auto_id=True)
-        schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20, is_primary=True)
-        schema.add_field(field_name="analysis_type", datatype=DataType.VARCHAR, max_length=50, is_primary=True)
+        schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+        schema.add_field(field_name="symbol", datatype=DataType.VARCHAR, max_length=20)
+        schema.add_field(field_name="analysis_type", datatype=DataType.VARCHAR, max_length=50)
         schema.add_field(field_name="latest_date", datatype=DataType.VARCHAR, max_length=20)
         schema.add_field(field_name="result", datatype=DataType.JSON)
         schema.add_field(field_name="created_at", datatype=DataType.VARCHAR, max_length=30)
@@ -782,45 +782,45 @@ class RecommendationCacheManager(BaseCollectionManager):
         now = datetime.now().isoformat()
         expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
         
-        self.connection._client.upsert(
-        collection_name=self.collection_name,
-        data=[{
-            "symbol": symbol,           # 主键1
-            "analysis_type": analysis_type,  # 主键2
-            "latest_date": latest_date,
-            "result": result,
-            "created_at": now,
-            "updated_at": now,
-        }]
-    )
-        # try:
-        #     # ✅ 确保 Collection 已加载
-        #     try:
-        #         self.connection._client.load_collection(self.collection_name)
-        #     except Exception:
-        #         pass
+    #     self.connection._client.upsert(
+    #     collection_name=self.collection_name,
+    #     data=[{
+    #         "symbol": symbol,           # 主键1
+    #         "analysis_type": analysis_type,  # 主键2
+    #         "latest_date": latest_date,
+    #         "result": result,
+    #         "created_at": now,
+    #         "updated_at": now,
+    #     }]
+    # )
+        try:
+            # ✅ 确保 Collection 已加载
+            try:
+                self.connection._client.load_collection(self.collection_name)
+            except Exception:
+                pass
             
-        #     # 删除旧数据
-        #     self.delete(expr)
-        # except Exception as e:
-        #     print(f"[RecommendationCacheManager.save] 删除旧数据失败: {e}")
+            # 删除旧数据
+            self.delete(expr)
+        except Exception as e:
+            print(f"[RecommendationCacheManager.save] 删除旧数据失败: {e}")
         
-        # # 插入新数据
-        # try:
-        #     self.insert([{
-        #         "symbol": symbol,
-        #         "analysis_type": analysis_type,
-        #         "latest_date": latest_date,
-        #         "result": result,
-        #         "created_at": now,
-        #         "updated_at": now,
-        #         "dummy_vector": [0.0]
-        #     }])
-        #     print(f"✅ 缓存已保存: {symbol} - {analysis_type} (最新日期: {latest_date})")
-        # except Exception as e:
-        #     print(f"❌ 缓存保存失败: {symbol} - {analysis_type}: {e}")
+        # 插入新数据
+        try:
+            self.insert([{
+                "symbol": symbol,
+                "analysis_type": analysis_type,
+                "latest_date": latest_date,
+                "result": result,
+                "created_at": now,
+                "updated_at": now,
+                "dummy_vector": [0.0]
+            }])
+            print(f"✅ 缓存已保存: {symbol} - {analysis_type} (最新日期: {latest_date})")
+        except Exception as e:
+            print(f"❌ 缓存保存失败: {symbol} - {analysis_type}: {e}")
             
-        print(f"✅ 缓存已保存: {symbol} - {analysis_type} ,result:{result} ,(最新日期: {latest_date})")
+        # print(f"✅ 缓存已保存: {symbol} - {analysis_type} ,result:{result} ,(最新日期: {latest_date})")
     
     def clear(self, symbol: Optional[str] = None, analysis_type: Optional[str] = None):
         """清除缓存"""
