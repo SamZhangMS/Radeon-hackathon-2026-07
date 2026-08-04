@@ -27,7 +27,7 @@ class BaseBatchSkill(BaseSkill):
     """
     Batch processing skill base class with memory optimization and Milvus caching
     """
-    
+    _execution_lock = threading.Lock()
     def __init__(
         self,
         name: str,
@@ -37,7 +37,9 @@ class BaseBatchSkill(BaseSkill):
         timeout: int = 60,
         output_tokens: int = 400*2,
         safety_margin: float = 0.75,
-        enable_cache: bool = True  # ✅ 新增：是否启用缓存
+        enable_cache: bool = True  ,
+        parallel_batches: int = 2
+        
     ):
         super().__init__(name, description)
         
@@ -48,6 +50,7 @@ class BaseBatchSkill(BaseSkill):
         self.output_tokens = output_tokens
         self.safety_margin = safety_margin
         self.enable_cache = enable_cache
+        self.parallel_batches = parallel_batches
         
         # ✅ 从 config 读取 max_model_len
         self.max_model_len = LLM_API_CONFIG.get("max_model_len", 65536)
@@ -65,6 +68,7 @@ class BaseBatchSkill(BaseSkill):
         
         print(f"   📊 Max context: {self.max_context_tokens}, Available: {self.available_tokens}")
         print(f"   📊 Actual limit: {self.actual_limit}")
+        print(f"   🚀 Parallel batches: {self.parallel_batches}")
         
         # Initialize tokenizer
         self._init_token_counter()
@@ -470,53 +474,150 @@ class BaseBatchSkill(BaseSkill):
         
         # 分析需要处理的
         if to_analyze:
-            results = self._process_batch(to_analyze, **kwargs)
-            print(f'[_process_batch_with_cache] results:{results}')
-            if results:
-                symbol_to_item = {item.get('symbol'): item for item in to_analyze if item.get('symbol')}
-                print(f'[_process_batch_with_cache] symbol_to_item:{symbol_to_item}')
-                # 保存到缓存
-                for r in results:
-                    print(f'[_process_batch_with_cache] Saving cache for {r}')
-                    symbol = r.get('symbol')
-                    if not symbol:
-                        # 尝试从 to_analyze 中匹配
-                        idx = results.index(r)
-                        if idx < len(to_analyze):
-                            symbol = to_analyze[idx].get('symbol')
-                            if symbol:
-                                r['symbol'] = symbol
-                    
-                    if symbol:
-                        # ✅ 从 symbol_to_item 获取数据
-                        item_data = symbol_to_item.get(symbol)
-                        if item_data:
-                            # 尝试从 item_data 获取日期
-                            latest_date = item_data.get('_latest_date')
-                            
-                            if not latest_date:
-                                data = self.get_loaded_data(symbol)
-                                if data is None:
-                                    data = self._data_cache.get(symbol)
-                                latest_date = self._get_data_latest_date(data)
-                        else:
+            if len(to_analyze) <= self.parallel_batches * self.batch_size:
+                return self._process_batches_sequential(to_analyze, cached_results, symbol_to_item, **kwargs)
+        
+        # ✅ 并发处理多个批次
+            return self._process_batches_parallel(to_analyze, cached_results, symbol_to_item, **kwargs)
+        
+    def _process_batches_sequential(
+        self, 
+        to_analyze: List[Dict], 
+        cached_results: List[Dict], 
+        symbol_to_item: Dict[str, Dict],
+        **kwargs
+    ) -> List[Dict]:
+        results = self._process_batch(to_analyze, **kwargs)
+        print(f'[_process_batches_sequential] results:{results}')
+        if results:
+            symbol_to_item = {item.get('symbol'): item for item in to_analyze if item.get('symbol')}
+            print(f'[_process_batches_sequential] symbol_to_item:{symbol_to_item}')
+            # 保存到缓存
+            for r in results:
+                print(f'[_process_batches_sequential] Saving cache for {r}')
+                symbol = r.get('symbol')
+                if not symbol:
+                    # 尝试从 to_analyze 中匹配
+                    idx = results.index(r)
+                    if idx < len(to_analyze):
+                        symbol = to_analyze[idx].get('symbol')
+                        if symbol:
+                            r['symbol'] = symbol
+                
+                if symbol:
+                    # ✅ 从 symbol_to_item 获取数据
+                    item_data = symbol_to_item.get(symbol)
+                    if item_data:
+                        # 尝试从 item_data 获取日期
+                        latest_date = item_data.get('_latest_date')
+                        
+                        if not latest_date:
                             data = self.get_loaded_data(symbol)
                             if data is None:
                                 data = self._data_cache.get(symbol)
                             latest_date = self._get_data_latest_date(data)
-                        
-                        print(f'[_process_batch_with_cache] latest_date:{latest_date}')
-                        if latest_date:
-                            self._save_cached_result(symbol, latest_date, r)
-                
-                results.extend(cached_results)
-                return results
-            else:
-                # ✅ 分析失败，返回缓存结果
-                return cached_results
+                    else:
+                        data = self.get_loaded_data(symbol)
+                        if data is None:
+                            data = self._data_cache.get(symbol)
+                        latest_date = self._get_data_latest_date(data)
+                    
+                    print(f'[_process_batches_sequential] latest_date:{latest_date}')
+                    if latest_date:
+                        self._save_cached_result(symbol, latest_date, r)
+            
+            results.extend(cached_results)
+            return results
+        else:
+            # ✅ 分析失败，返回缓存结果
+            return cached_results
+    
+    def _process_batches_parallel(
+        self, 
+        to_analyze: List[Dict], 
+        cached_results: List[Dict], 
+        symbol_to_item: Dict[str, Dict],
+        **kwargs
+    ) -> List[Dict]:
+        """
+        ✅ 并发处理多个批次
+        """
+        # 将 to_analyze 分割成多个批次
+        batches = []
+        batch_size = self.batch_size
+        for i in range(0, len(to_analyze), batch_size):
+            batch = to_analyze[i:i+batch_size]
+            batches.append(batch)
+        
+        print(f"   🚀 Processing {len(to_analyze)} items in {len(batches)} batches, "
+              f"parallel limit: {self.parallel_batches}")
+        
+        all_results = []
+        results_lock = threading.Lock()
+        
+        # 使用线程池并发处理
+        with ThreadPoolExecutor(max_workers=self.parallel_batches) as executor:
+            # 提交所有批次任务
+            future_to_batch = {
+                executor.submit(self._process_single_batch, batch, kwargs): batch
+                for batch in batches
+            }
+            
+            # 使用 tqdm 显示进度
+            with tqdm(total=len(batches), desc="Processing batches", unit="batch") as pbar:
+                for future in as_completed(future_to_batch):
+                    batch = future_to_batch[future]
+                    try:
+                        batch_results = future.result(timeout=self.timeout)
+                        if batch_results:
+                            with results_lock:
+                                all_results.extend(batch_results)
+                    except TimeoutError:
+                        print(f"   ⚠️ Batch processing timeout")
+                    except Exception as e:
+                        print(f"   ⚠️ Batch processing failed: {e}")
+                    pbar.update(1)
+        
+        # 保存缓存
+        if all_results:
+            for r in all_results:
+                symbol = r.get('symbol')
+                if symbol:
+                    item_data = symbol_to_item.get(symbol)
+                    if item_data:
+                        latest_date = item_data.get('_latest_date')
+                        if not latest_date:
+                            data = self.get_loaded_data(symbol)
+                            if data is None:
+                                data = self._data_cache.get(symbol)
+                            latest_date = self._get_data_latest_date(data)
+                    else:
+                        data = self.get_loaded_data(symbol)
+                        if data is None:
+                            data = self._data_cache.get(symbol)
+                        latest_date = self._get_data_latest_date(data)
+                    
+                    if latest_date:
+                        self._save_cached_result(symbol, latest_date, r)
+            
+            all_results.extend(cached_results)
+            return all_results
         
         return cached_results
     
+    def _process_single_batch(
+        self, 
+        batch: List[Dict], 
+        kwargs: Dict
+    ) -> List[Dict]:
+        """
+        ✅ 处理单个批次（线程安全）
+        """
+        try:
+            return self._process_batch(batch, **kwargs)
+        except Exception as e:
+            print(f"   ⚠️ Batch processing error: {e}")
+            return []
     # ============================================================
     # 流式数据处理核心
     # ============================================================
@@ -765,36 +866,37 @@ class BaseBatchSkill(BaseSkill):
         print(f"   📊 Streaming processing {len(items)} items...")
         start_time = time.time()
         
-        # Preprocess
-        processed = self._preprocess(items, **kwargs)
-        
-        # 定义数据加载函数
-        def data_loader(symbol: str):
-            return self._load_item_data(symbol, **kwargs)
-        
-        # 流式处理（内部会记录选中的基金并过滤数据）
-        results = self._streaming_process(processed, data_loader, **kwargs)
-        
-        # Postprocess
-        results = self._postprocess(results, **kwargs)
-        results = self._sort_results(results)
-        
-        if keep_count is not None:
-            results = results[:keep_count]
-        
-        # ✅ 最终过滤：只保留最终结果中symbol的数据
-        final_keep_symbols = {r.get('symbol') for r in results if r.get('symbol')}
-        self._all_loaded_data = {
-            sym: data for sym, data in self._all_loaded_data.items()
-            if sym in final_keep_symbols
-        }
-        self._keep_symbols = final_keep_symbols
-        
-        elapsed = time.time() - start_time
-        print(f"      ✅ Completed, time used {elapsed:.2f}s, retained {len(results)} items")
-        print(f"      📊 Final data cache size: {len(self._all_loaded_data)} items")
-        
-        return results
+        with BaseBatchSkill._execution_lock:
+            # Preprocess
+            processed = self._preprocess(items, **kwargs)
+            
+            # 定义数据加载函数
+            def data_loader(symbol: str):
+                return self._load_item_data(symbol, **kwargs)
+            
+            # 流式处理（内部会记录选中的基金并过滤数据）
+            results = self._streaming_process(processed, data_loader, **kwargs)
+            
+            # Postprocess
+            results = self._postprocess(results, **kwargs)
+            results = self._sort_results(results)
+            
+            if keep_count is not None:
+                results = results[:keep_count]
+            
+            # ✅ 最终过滤：只保留最终结果中symbol的数据
+            final_keep_symbols = {r.get('symbol') for r in results if r.get('symbol')}
+            self._all_loaded_data = {
+                sym: data for sym, data in self._all_loaded_data.items()
+                if sym in final_keep_symbols
+            }
+            self._keep_symbols = final_keep_symbols
+            
+            elapsed = time.time() - start_time
+            print(f"      ✅ Completed, time used {elapsed:.2f}s, retained {len(results)} items")
+            print(f"      📊 Final data cache size: {len(self._all_loaded_data)} items")
+            
+            return results
     
     def _load_item_data(self, symbol: str, **kwargs) -> Optional[Any]:
         """

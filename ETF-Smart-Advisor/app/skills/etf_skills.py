@@ -205,7 +205,8 @@ class ETFAnalyzeSkill(BaseBatchSkill):
             timeout=180,
             output_tokens=800*2,
             safety_margin=0.75,
-            enable_cache=True  # ✅ 启用缓存
+            enable_cache=True  ,
+            parallel_batches=2 
         )
         self.data_loader = ETFDataLoader()
         self.MIN_KEEP_COUNT = 50
@@ -563,7 +564,8 @@ class ETFRankingSkill(BaseBatchSkill):
             max_workers=4,
             timeout=60,
             output_tokens=400*2,
-            safety_margin=0.75
+            safety_margin=0.75,
+            parallel_batches=2 
         )
         self.data_loader = ETFDataLoader()
         self.MIN_KEEP_COUNT = 10
@@ -720,7 +722,8 @@ class ETFDeepAnalyzeSkill(BaseBatchSkill):
             max_workers=1,
             timeout=120,
             output_tokens=600*2,
-            safety_margin=0.75
+            safety_margin=0.75,
+            parallel_batches=2 
         )
         self.data_loader = ETFDataLoader()
         self.MIN_KEEP_COUNT = 1
