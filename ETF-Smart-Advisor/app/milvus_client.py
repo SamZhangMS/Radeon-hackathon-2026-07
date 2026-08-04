@@ -132,8 +132,8 @@ class MilvusConnection:
     
     def _ensure_collection(self, collection_name: str, schema_func, index_func=None):
         """确保 Collection 存在"""
-        if not self._is_available():
-            print(f'[milvus - _ensure_collection], self._is_available()={self._is_available()}')
+        if self._client is None: # if not self._is_available():
+            print(f'[milvus - _ensure_collection], self._client is None')
             return False
         
         try:
@@ -142,7 +142,10 @@ class MilvusConnection:
             
             # 创建 Schema
             schema = schema_func()
-            
+            if schema is None:
+                print(f'[milvus - _ensure_collection], schema is None')
+                return False
+        
             # 创建索引
             index_params = None
             if index_func:
@@ -162,11 +165,15 @@ class MilvusConnection:
     
     def _insert_data(self, collection_name: str, data: List[Dict]) -> bool:
         """插入数据"""
-        if not self._is_available() or not data:
-            print(f'[milvus - _insert_data], self._is_available()={self._is_available()}, data={data}')
+        if self._client is None or not data: # if not self._is_available() or not data:
+            print(f'[milvus - _insert_data], if self._client is None or not data:, data={data}')
             return False
         
         try:
+            if not self._client.has_collection(collection_name):
+                print(f'[milvus - _insert_data] Collection {collection_name} does not exist, skipping insert')
+                return False
+        
             self._client.insert(collection_name, data)
             print(f'[milvus - _insert_data], 插入数据成功: {len(data)} 条')
             return True
@@ -177,40 +184,19 @@ class MilvusConnection:
     def _query_data(self, collection_name: str, expr: str, 
                     output_fields: List[str], limit: int = 1000) -> List[Dict]:
         """查询数据"""
-        if not self._is_available():
-            # 尝试重新初始化连接
-            try:
-                self._init_milvus_lite()
-                if not self._is_available():
-                    print(f'[milvus - _query_data], self._is_available()={self._is_available()}, expr={expr}')
-                    return []
-            except Exception as e:
-                print(f'[milvus - _query_data], 重新连接失败: {e}')
-                return []
+        if self._client is None:
+            print(f'[milvus - _query_data], self._client is None, expr={expr}')
+            return []
         
         try:
-            # ✅ 确保 Collection 已加载
-            if not self._client.get_collection_stats(collection_name).get("row_count", 0) > 0:
-                # 如果 Collection 为空，直接返回空列表
-                return []
-            
-            # ✅ 加载 Collection（如果未加载）
+            # ✅ 先尝试加载 Collection
             try:
-                # 检查是否已加载
-                stats = self._client.get_collection_stats(collection_name)
-                # 如果 stats 包含错误或未加载，尝试加载
-            except Exception:
-                # 尝试加载
-                try:
-                    self._client.load_collection(collection_name)
-                    print(f"[milvus - _query_data] Loaded collection: {collection_name}")
-                except Exception as load_e:
-                    print(f"[milvus - _query_data] Failed to load collection: {load_e}")
-                    # 如果加载失败，返回空列表
+                # 检查 collection 是否存在
+                if not self._client.has_collection(collection_name):
+                    print(f'[milvus - _query_data] Collection {collection_name} does not exist')
                     return []
-            
-            try:
-            # 尝试加载 Collection
+                
+                # 尝试加载
                 self._client.load_collection(collection_name)
             except Exception as e:
                 # 如果已加载会抛出异常，忽略
@@ -223,12 +209,10 @@ class MilvusConnection:
                 limit=limit
             )
         except Exception as e:
-            # 如果是 Collection 未加载的错误，尝试加载后重试
             if "state 'released'" in str(e) or "call load()" in str(e):
                 try:
+                    # 尝试加载并重试
                     self._client.load_collection(collection_name)
-                    print(f"[milvus - _query_data] Loaded collection on retry: {collection_name}")
-                    # 重试查询
                     return self._client.query(
                         collection_name=collection_name,
                         filter=expr,
@@ -258,11 +242,15 @@ class MilvusConnection:
     
     def _update_data(self, collection_name: str, expr: str, data: Dict) -> bool:
         """更新数据 - 使用 upsert 替代 update"""
-        if not self._is_available():
-            print(f'[milvus - _update_data], self._is_available()={self._is_available()}, expr={expr}')
+        if self._client is None: # if not self._is_available():
+            print(f'[milvus - _update_data], if self._client is None:, expr={expr}')
             return False
         
         try:
+            if not self._client.has_collection(collection_name):
+                print(f'[milvus - _update_data] Collection {collection_name} does not exist')
+                return False
+
             # 1. 先查询要更新的数据
             results = self._query_data(collection_name, expr, list(data.keys()), limit=1)
             if not results:
@@ -281,11 +269,10 @@ class MilvusConnection:
             # 4. 插入新数据（包含更新后的字段）
             # 合并原有数据和更新数据
             updated_data = {**results[0], **data}
-            # 移除 id（让 auto_id 重新生成，或者保留原 id）
-            # 如果 id 是自动生成的，需要移除
+            # 移除 id（让 auto_id 重新生成）
             if 'id' in updated_data:
-                # 保留 id，但确保它是正确的类型
-                pass
+                del updated_data['id']
+                
             
             self._client.insert(collection_name, [updated_data])
             print(f'[milvus - _update_data] 更新数据成功')
@@ -733,14 +720,28 @@ class RecommendationCacheManager(BaseCollectionManager):
     
     def get(self, symbol: str, analysis_type: str) -> Optional[Dict]:
         """获取缓存"""
-        expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
-        results = self.query(expr, ["latest_date", "result"], limit=1)
+        try:
+            # ✅ 确保 collection 已加载
+            if self.connection._client is not None:
+                try:
+                    if self.connection._client.has_collection(self.collection_name):
+                        self.connection._client.load_collection(self.collection_name)
+                except Exception:
+                    pass
+            
+            expr = f'symbol == "{symbol}" and analysis_type == "{analysis_type}"'
+            results = self.query(expr, ["latest_date", "result"], limit=1)
+            
+            if results:
+                return {
+                    "latest_date": results[0]["latest_date"],
+                    "result": results[0]["result"]
+                }
+        except Exception as e:
+            # ✅ 如果查询失败，返回 None（当作缓存未命中）
+            print(f"[RecommendationCacheManager.get] 查询失败: {e}")
+            return None
         
-        if results:
-            return {
-                "latest_date": results[0]["latest_date"],
-                "result": results[0]["result"]
-            }
         return None
     
     def save(self, symbol: str, analysis_type: str, latest_date: str, result: Dict):

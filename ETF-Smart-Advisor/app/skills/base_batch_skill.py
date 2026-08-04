@@ -296,10 +296,14 @@ class BaseBatchSkill(BaseSkill):
     def _is_milvus_available(self) -> bool:
         """检查 Milvus 是否可用"""
         return (self.enable_cache and 
-                self._milvus is not None and 
-                hasattr(self._milvus, '_client') and 
-                self._milvus._client is not None and
-                self._milvus._client.has_collection(self._cache_collection))
+            self._milvus is not None and 
+            hasattr(self._milvus, '_client') and 
+            self._milvus._client is not None)
+        # return (self.enable_cache and 
+        #         self._milvus is not None and 
+        #         hasattr(self._milvus, '_client') and 
+        #         self._milvus._client is not None and
+        #         self._milvus._client.has_collection(self._cache_collection))
    
     # ============================================================
     # Milvus 缓存方法
