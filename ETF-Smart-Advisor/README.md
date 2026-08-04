@@ -1,3 +1,2 @@
-cp setup_env.sh.py setup_env.sh
-chmod +x setup_env.sh
-./setup_env.sh
+1. Donwload dataset from  https://www.kaggle.com/datasets/samsamsamzz/ahistory and unzip the file to data/ folder which is the same level of app (ensure the dir structuss is: app/data/history/1D/xxxxxxxx.parquet)
+2. Run bash ./setup_env.sh
