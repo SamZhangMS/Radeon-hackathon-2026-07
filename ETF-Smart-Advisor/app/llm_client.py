@@ -19,6 +19,8 @@ from typing import Optional, List, Dict, Any, Union
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, AutoConfig
 import bitsandbytes
 import requests
+from .utils import format_exception
+
 
 from .config import LLM_API_CONFIG
 
@@ -108,7 +110,7 @@ class LLMClient:
             self._vllm_available = False
             return False
         except Exception as e:
-            logger.warning(f"vLLM 健康检查异常: {e}")
+            logger.warning(f"vLLM 健康检查异常: {e}\nTrackback:{format_exception(e)}")
             self._vllm_available = False
             return False
     
@@ -164,7 +166,7 @@ class LLMClient:
                 "backend": "vllm"
             }
         except Exception as e:
-            logger.error(f"vLLM 请求异常: {e}")
+            logger.error(f"vLLM 请求异常: {e}\nTrackback:{format_exception(e)}")
             return {
                 "success": False,
                 "error": str(e),
@@ -196,11 +198,11 @@ class LLMClient:
                 logger.info(f"   模型最大序列长度: {result}")
                 return result
             except Exception as e:
-                logger.warning(f"   无法从模型配置获取最大长度: {e}")
+                logger.warning(f"   无法从模型配置获取最大长度: {e}\nTrackback:{format_exception(e)}")
                 return config_max_len
                 
         except Exception as e:
-            logger.warning(f"   获取模型最大长度失败: {e}")
+            logger.warning(f"   获取模型最大长度失败: {e}\nTrackback:{format_exception(e)}")
             return self.max_model_len
     
     # ============================================================
@@ -256,7 +258,7 @@ class LLMClient:
             return self._model, self._tokenizer
             
         except Exception as e:
-            logger.error(f"❌ Transformers 模型加载失败: {e}")
+            logger.error(f"❌ Transformers 模型加载失败: {e}\nTrackback:{format_exception(e)}")
             raise
     
     def _transformers_generate(
@@ -321,7 +323,7 @@ class LLMClient:
             }
             
         except Exception as e:
-            logger.error(f"Transformers 推理失败: {e}")
+            logger.error(f"Transformers 推理失败: {e}\nTrackback:{format_exception(e)}")
             return {
                 "success": False,
                 "error": str(e),
@@ -391,7 +393,7 @@ class LLMClient:
                         **kwargs
                     ))
                 except Exception as e:
-                    logger.warning(f"vLLM 调用异常: {e}")
+                    logger.warning(f"vLLM 调用异常: {e}\nTrackback:{format_exception(e)}")
                     result = {"success": False, "error": str(e)}
                 
                 if result.get('success'):
@@ -451,11 +453,11 @@ class LLMClient:
                 "messages": messages
             }
         except Exception as e:
-            logger.error(f"Chat 失败: {e}")
+            logger.error(f"Chat 失败: {e}\nTrackback:{format_exception(e)}")
             return {
                 "success": False,
                 "error": str(e),
-                "response": f"生成失败: {e}",
+                "response": f"生成失败: {e}\nTrackback:{format_exception(e)}",
                 "messages": messages
             }
     
