@@ -233,6 +233,22 @@ Output JSON:
     "scores": [{"symbol": "Symbol", "score": 0-100 integer, "signal": "buy/hold/sell", "reason": "Reason"}]
 }"""
     
+
+    def _build_batch_prompt(self, prompts: List[str], symbols: List[str], **kwargs) -> str:
+        return f"""Analyze the following {len(prompts)} ETFs' raw OHLCV data.
+
+Data format: Symbol|Date|O|H|L|C|V
+
+Data:
+{"\n".join(prompts)}
+
+Output JSON ONLY (no other text):
+{{
+    "scores": [
+        {{"symbol": "Symbol", "score": 0-100 integer, "signal": "buy/hold/sell", "reason": "short reason"}}
+    ]
+}}"""
+    
     def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
         days = kwargs.get('data_days', 30)
         return self.data_loader.load_data(symbol, days)
@@ -299,7 +315,7 @@ Output JSON ONLY (no other text):
                 temperature=0.3,
                 enable_thinking=False
             )
-            # print(f'\nETFAnalyzeSkill._process_batch response: \n{response}')
+            print(f'\nETFAnalyzeSkill._process_batch response: \n{response}')
             results = self._parse_response(response, batch_symbols)
             return results 
         except Exception as e:
@@ -580,6 +596,20 @@ Task: Based on raw OHLCV data and initial scores, re-evaluate the relative stren
 
 Output JSON: {"rankings": [{"symbol": "Symbol", "rank_score": Score, "signal": "buy/hold/sell", "reason": "Reason"}]}"""
     
+
+    def _build_batch_prompt(self, prompts: List[str], symbols: List[str], **kwargs) -> str:
+        return f"""
+Please perform fine comparative ranking of the following {len(prompts)} ETFs.
+
+Data:
+{"\n".join(prompts)}
+
+Output JSON ONLY (no other text):
+{{
+    "rankings": [
+        {{"symbol": "Symbol", "rank_score": Score, "signal": "buy/hold/sell", "reason": "Reason"}}
+    ]
+}}"""
     def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
         """加载单个ETF数据"""
         days = kwargs.get('data_days', 60)
@@ -759,6 +789,31 @@ Please calculate indicators from raw data:
     "stop_loss": Stop loss price
 }"""
     
+
+    def _build_batch_prompt(self, prompts: List[str], symbols: List[str], **kwargs) -> str:
+        symbol = symbols[0] if symbols else "Unknown"
+        full_data = prompts[0] if prompts else ""
+        
+        return f"""
+# Task
+Perform deep technical analysis on {symbol}.
+
+# Raw OHLCV Data
+Format: YYYY-MM-DD|O|H|L|C|V
+
+{full_data}
+
+# Output JSON ONLY (no other text):
+{{
+    "deep_score": 0-100 Score,
+    "recommendation": "buy/hold/sell",
+    "signal": "Specific suggestion",
+    "confidence": 0.0-1.0,
+    "risk_level": "low/medium/high",
+    "analysis": "Detailed analysis",
+    "target_price": Target price,
+    "stop_loss": Stop loss price
+}}"""
     def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
         """加载单个ETF数据"""
         days = kwargs.get('data_days', 60)
