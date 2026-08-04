@@ -960,15 +960,28 @@ class MilvusClient:
         logger.info(f"   📚 Collections: knowledge, recommendation, feedback")
     
     
+
     def get_stats(self) -> Dict:
         """获取所有 Collection 的统计信息"""
-        return {
-            "knowledge": self.knowledge.get_stats(),
-            "recommendation": self.recommendation.get_stats(),
-            "feedback": self.feedback.get_stats(),
+        result = {
             "mode": "Memory" if self.knowledge.connection._memory_mode else "Milvus Lite"
         }
-    
+        
+        # ✅ 安全获取每个 collection 的统计信息
+        for name, manager in [
+            ("knowledge", self.knowledge),
+            ("recommendation", self.recommendation),
+            ("feedback", self.feedback)
+        ]:
+            try:
+                stats = manager.get_stats()
+                result[name] = stats
+            except Exception as e:
+                # ✅ 捕获所有异常，确保不中断
+                print(f'[MilvusClient.get_stats] Error getting stats for {name}: {e}')
+                result[name] = {"row_count": 0, "error": str(e)}
+        
+        return result
     def stop(self):
         """停止 Milvus 服务"""
         self.knowledge.connection.stop()
