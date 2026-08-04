@@ -284,15 +284,39 @@ class MilvusConnection:
     
     def _get_stats(self, collection_name: str) -> Dict:
         """获取 Collection 统计信息"""
-        if not self._is_available():
-            print(f'[milvus - _get_stats], self._is_available()={self._is_available()}')
-            return {"row_count": 0, "error": "Milvus not available"}
+        if self._client is None:
+            print(f'[milvus - _get_stats], self._client is None')
+            return {"row_count": 0, "error": "Milvus client not available"}
         
         try:
             return self._client.get_collection_stats(collection_name)
         except Exception as e:
-            print(f'[milvus - _get_stats], 获取统计信息失败: {e}')
-            return {"row_count": 0, "error": str(e)," traceback": format_exception(e)}
+            # ✅ 如果 collection 不存在，尝试创建它
+            if "does not exist" in str(e) or "code=100" in str(e):
+                print(f'[milvus - _get_stats] Collection {collection_name} does not exist')
+                # 尝试通过对应的 manager 创建 collection
+                try:
+                    # 根据 collection_name 找到对应的 manager
+                    from .milvus_client import MilvusClient
+                    client = MilvusClient()
+                    if collection_name == "etf_knowledge":
+                        client.knowledge._ensure_collection()
+                    elif collection_name == "etf_recommendation_cache":
+                        client.recommendation._ensure_collection()
+                    elif collection_name == "etf_feedback":
+                        client.feedback._ensure_collection()
+                    else:
+                        print(f'[milvus - _get_stats] Unknown collection: {collection_name}')
+                        return {"row_count": 0, "error": str(e)}
+                    
+                    # 创建后重试获取统计信息
+                    return self._client.get_collection_stats(collection_name)
+                except Exception as retry_e:
+                    print(f'[milvus - _get_stats] 创建后仍失败: {retry_e}')
+                    return {"row_count": 0, "error": str(retry_e)}
+            else:
+                print(f'[milvus - _get_stats], 获取统计信息失败: {e}')
+                return {"row_count": 0, "error": str(e), "traceback": format_exception(e)}
     
     def stop(self):
         """停止 Milvus 服务"""
@@ -924,6 +948,13 @@ class MilvusClient:
         self.knowledge = KnowledgeManager()
         self.recommendation = RecommendationCacheManager()
         self.feedback = FeedbackManager()
+        
+        # ✅ 确保所有 collection 已创建
+        for manager in [self.knowledge, self.recommendation, self.feedback]:
+            try:
+                manager._ensure_collection()
+            except Exception as e:
+                print(f"   ⚠️ Failed to ensure collection for {manager.collection_name}: {e}")
         
         logger.info("✅ Milvus 客户端初始化完成")
         logger.info(f"   📚 Collections: knowledge, recommendation, feedback")
