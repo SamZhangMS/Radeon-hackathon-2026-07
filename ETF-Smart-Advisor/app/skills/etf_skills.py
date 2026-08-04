@@ -322,19 +322,23 @@ Output JSON ONLY (no other text):
             print(f"      ⚠️ LLM analysis failed: {e}")
             return []    
     def _parse_response(self, response: str, batch_symbols: List[str] = None) -> List[Dict]:
-        """Parse LLM response with symbol matching - 支持不完整JSON"""
+        """Parse LLM response with symbol matching"""
         results = []
+        
+        if not response or len(response.strip()) < 10:
+            print(f"[DEBUG] _parse_response: Empty or too short response (length: {len(response) if response else 0})")
+            return results
         
         print(f"[DEBUG] _parse_response: response length={len(response)}")
         print(f"[DEBUG] _parse_response: batch_symbols={batch_symbols[:5] if batch_symbols else None}...")
         
-        # ✅ 方法1: 尝试提取完整的JSON
         try:
             data = self._extract_json(response)
             print(f"[DEBUG] _parse_response: extracted data={data is not None}")
-            if data:
+            if data is not None:  # ✅ 使用 is not None 而不是 if data
+                # 尝试获取 scores（ETFAnalyzeSkill 格式）
                 scores = data.get('scores', [])
-                if scores:
+                if scores:  # ✅ list 的布尔判断是安全的
                     for idx, item in enumerate(scores):
                         if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
                             item['symbol'] = batch_symbols[idx]
@@ -346,20 +350,42 @@ Output JSON ONLY (no other text):
                                     item['score'] = 50
                             results.append(item)
                     if results:
+                        print(f"[DEBUG] _parse_response: returning {len(results)} results from scores")
                         return results
+                
+                # 尝试获取 rankings（ETFRankingSkill 格式）
+                rankings = data.get('rankings', [])
+                if rankings:
+                    for idx, item in enumerate(rankings):
+                        if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
+                            item['symbol'] = batch_symbols[idx]
+                        if item.get('symbol'):
+                            if 'rank_score' in item:
+                                try:
+                                    item['score'] = int(item['rank_score'])
+                                except (ValueError, TypeError):
+                                    item['score'] = 50
+                            results.append(item)
+                    if results:
+                        print(f"[DEBUG] _parse_response: returning {len(results)} results from rankings")
+                        return results
+                
+                # 如果是单个对象（ETFDeepAnalyzeSkill 格式）
+                if 'symbol' in data and 'deep_score' in data:
+                    data['score'] = data.get('deep_score', 50)
+                    if not data.get('signal'):
+                        data['signal'] = data.get('recommendation', 'hold')
+                    return [data]
+                
         except Exception as e:
             print(f"      ⚠️ JSON extraction error: {e}")
         
-        # ✅ 方法2: 从不完整的JSON中提取已完成的条目
-        # 查找所有完整的 {"symbol": "...", "score": ..., ...} 对象
+        # ✅ 安全地从 JSON 对象中提取完整条目
         try:
-            # 匹配完整的对象（以 { 开始，以 } 结束）
             object_pattern = r'\{[^{}]*"symbol"[^{}]*"score"[^{}]*\}'
             matches = re.findall(object_pattern, response)
             
-            print(f"[DEBUG] _parse_response: found {len(matches)} complete objects")
-            
-            for idx, match in enumerate(matches):
+            for match in matches:
                 try:
                     item = json.loads(match)
                     if item.get('symbol') and 'score' in item:
@@ -368,7 +394,6 @@ Output JSON ONLY (no other text):
                         except (ValueError, TypeError):
                             item['score'] = 50
                         results.append(item)
-                        print(f"[DEBUG] _parse_response: added {item.get('symbol')} score={item.get('score')}")
                 except:
                     continue
             
@@ -376,79 +401,35 @@ Output JSON ONLY (no other text):
                 print(f"[DEBUG] _parse_response: returning {len(results)} results from partial JSON")
                 return results
         except Exception as e:
-            print(f"      ⚠️ Partial JSON extraction error: {e}")
+            pass
         
-        # ✅ 方法3: 使用正则提取 symbol 和 score（原有的fallback）
+        # ✅ 正则提取 fallback
         if batch_symbols:
             symbol_pattern = r'"symbol"\s*:\s*"([^"]+)"'
             score_pattern = r'"score"\s*:\s*([-+]?\d+)'
-            signal_pattern = r'"signal"\s*:\s*"([^"]+)"'
             
-            symbols = re.findall(symbol_pattern, response)
-            scores = re.findall(score_pattern, response)
-            signals = re.findall(signal_pattern, response)
+            symbols_found = re.findall(symbol_pattern, response)
+            scores_found = re.findall(score_pattern, response)
             
-            print(f"[DEBUG] Fallback: found {len(symbols)} symbols, {len(scores)} scores")
-            
-            # ✅ 如果提取到了 symbols，即使数量不匹配也使用
-            if symbols:
-                # 取 min(len(symbols), len(batch_symbols)) 个
-                count = min(len(symbols), len(batch_symbols))
-                
+            if symbols_found:
+                count = min(len(symbols_found), len(batch_symbols))
                 for i in range(count):
-                    symbol = symbols[i]
-                    # 验证 symbol 是否有效（至少4个字符）
+                    symbol = symbols_found[i]
                     if len(symbol) >= 4:
                         try:
-                            score_val = int(scores[i]) if i < len(scores) else 50
+                            score_val = int(scores_found[i]) if i < len(scores_found) else 50
                         except (ValueError, TypeError):
                             score_val = 50
                         
                         results.append({
                             'symbol': symbol,
                             'score': score_val,
-                            'signal': signals[i] if i < len(signals) else 'hold',
+                            'signal': 'hold',
                             'reason': 'Parsed from response'
                         })
                 
                 if results:
-                    print(f"[DEBUG] Fallback: returning {len(results)} results from partial match")
-                    return results
-            
-            # ✅ 如果 symbols 提取失败，尝试从 batch_symbols 匹配
-            # 从响应中提取分数列表
-            score_pattern_all = r'([-+]?\d+)\s*[,}\]]'
-            all_scores = re.findall(score_pattern_all, response)
-            
-            # 过滤出合理的分数（-100 到 100 之间）
-            valid_scores = []
-            for s in all_scores:
-                try:
-                    val = int(s)
-                    if -100 <= val <= 100:
-                        valid_scores.append(val)
-                except:
-                    continue
-            
-            print(f"[DEBUG] Fallback: found {len(valid_scores)} valid scores")
-            
-            if valid_scores:
-                # 使用 batch_symbols 和提取到的分数
-                count = min(len(valid_scores), len(batch_symbols))
-                
-                for i in range(count):
-                    symbol = batch_symbols[i]
-                    score_val = valid_scores[i] if i < len(valid_scores) else 50
-                    
-                    results.append({
-                        'symbol': symbol,
-                        'score': min(100, max(-100, score_val)),
-                        'signal': 'hold',
-                        'reason': 'Parsed from response (fallback)'
-                    })
-                
-                if results:
-                    print(f"[DEBUG] Fallback: returning {len(results)} results from score fallback")
+                    print(f"[DEBUG] _parse_response: returning {len(results)} results from regex")
                     return results
         
         return results

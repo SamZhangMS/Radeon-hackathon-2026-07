@@ -136,6 +136,10 @@ class BaseBatchSkill(BaseSkill):
         if not response:
             return None
         
+        # ✅ 确保 response 是字符串
+        if not isinstance(response, str):
+            response = str(response) if response is not None else ''
+        
         try:
             return json.loads(response.strip())
         except:
@@ -277,17 +281,25 @@ class BaseBatchSkill(BaseSkill):
         return None, False
     
     def _get_data_latest_date(self, data: Any) -> Optional[str]:
+        """获取数据的最新日期"""
         if data is None:
             return None
         
         try:
-            if isinstance(data, pd.DataFrame) and not data.empty:
+            # ✅ 使用 pandas 的安全检查
+            if isinstance(data, pd.DataFrame):
+                if data.empty:
+                    return None
                 if isinstance(data.index, pd.DatetimeIndex):
                     return data.index[-1].strftime('%Y-%m-%d')
                 if 'date' in data.columns:
-                    return data['date'].iloc[-1].strftime('%Y-%m-%d')
+                    # ✅ 确保取到的值不是 Series
+                    date_val = data['date'].iloc[-1]
+                    if hasattr(date_val, 'strftime'):
+                        return date_val.strftime('%Y-%m-%d')
+                    return str(date_val)
         except Exception as e:
-            pass
+            print(f"      ⚠️ _get_data_latest_date error: {e}\nTrackback:{format_exception(e)}")
         
         return None
     
@@ -346,7 +358,7 @@ class BaseBatchSkill(BaseSkill):
                             processed_batches += 1
                             
                     except Exception as e:
-                        print(f"   ⚠️ Consumer error: {e}")
+                        print(f"   ⚠️ Consumer error: {e}\nTrackback:{format_exception(e)}")
                     finally:
                         batch_queue.task_done()
                         
@@ -354,7 +366,7 @@ class BaseBatchSkill(BaseSkill):
                     # 队列为空，继续等待
                     continue
                 except Exception as e:
-                    print(f"   ⚠️ Consumer worker error: {e}")
+                    print(f"   ⚠️ Consumer worker error: {e}\nTrackback:{format_exception(e)}")
                     continue
         
         # ============================================================
@@ -495,20 +507,20 @@ class BaseBatchSkill(BaseSkill):
         batch: Dict[str, Any], 
         kwargs: Dict
     ) -> List[Dict]:
-        """
-        处理单个批次（线程安全）
-        batch 格式: {'symbols': [], 'data_map': {}, 'prompts': [], 'tokens': 0, 'batch_id': 0}
-        """
+        """处理单个批次（线程安全）"""
         symbols = batch['symbols']
         data_map = batch['data_map']
         prompts = batch['prompts']
         batch_id = batch.get('batch_id', 0)
         
         try:
-            # 构建 prompt
             prompt = self._build_batch_prompt(prompts, symbols, **kwargs)
             
-            # 调用 LLM
+            # ✅ 确保 prompt 是字符串
+            if not isinstance(prompt, str):
+                print(f"   ⚠️ Batch {batch_id}: Prompt is not a string")
+                return []
+            
             response = self.llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
                 max_new_tokens=self.output_tokens,
@@ -516,23 +528,37 @@ class BaseBatchSkill(BaseSkill):
                 enable_thinking=False
             )
             
-            # 解析响应
+            if response is None or len(str(response).strip()) < 20:
+                print(f"   ⚠️ Batch {batch_id}: Empty or invalid response")
+                return []
+            
+            # ✅ 确保 response 是字符串
+            if not isinstance(response, str):
+                response = str(response) if response is not None else ''
+            
             results = self._parse_response(response, symbols)
             
-            # 保存到缓存
             if results:
                 for r in results:
                     symbol = r.get('symbol')
                     if symbol:
                         data = data_map.get(symbol)
-                        latest_date = self._get_data_latest_date(data) if data else None
-                        if latest_date:
-                            self._save_cached_result(symbol, latest_date, r)
+                        if data is not None:  # ✅ 使用 is not None
+                            latest_date = self._get_data_latest_date(data)
+                            if latest_date:
+                                self._save_cached_result(symbol, latest_date, r)
             
             return results if results else []
             
         except Exception as e:
-            print(f"   ⚠️ Batch {batch_id} processing error: {e}")
+            # ✅ 捕获并打印详细的错误信息
+            error_msg = str(e)
+            if "DataFrame" in error_msg or "ambiguous" in error_msg:
+                print(f"   ⚠️ Batch {batch_id}: DataFrame ambiguity error - check data types")
+                import traceback
+                traceback.print_exc()
+            else:
+                print(f"   ⚠️ Batch {batch_id} processing error: {e}\nTrackback:{format_exception(e)}")
             return []
     
     def _build_batch_prompt(self, prompts: List[str], symbols: List[str], **kwargs) -> str:
@@ -598,7 +624,7 @@ Output JSON ONLY (no other text):
                     return [data]
                 
         except Exception as e:
-            pass
+            print(f'  ⚠️ Error parsing response: {e}\nTrackback:{format_exception(e)}')
         
         # 从 JSON 对象中提取完整条目
         try:
@@ -620,7 +646,7 @@ Output JSON ONLY (no other text):
             if results:
                 return results
         except Exception as e:
-            pass
+            print(f'  ⚠️ Error parsing response: {e}\nTrackback:{format_exception(e)}')
         
         # 正则提取 fallback
         if batch_symbols:
