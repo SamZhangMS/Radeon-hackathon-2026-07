@@ -62,7 +62,7 @@ class InvestmentAdvisorV2:
             return {'error': '没有可用的ETF'}
         
         print(f"\n{'='*60}")
-        print(f"📊 Skill-based ETF analysis (about 4 hours)")
+        print(f"📊 Skill-based ETF analysis with 3 phases (about 4 hours)")
         print(f"   ETF: {len(symbols)}")
         print(f"   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*60}\n")
