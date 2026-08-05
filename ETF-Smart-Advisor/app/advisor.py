@@ -863,6 +863,7 @@ Recent {n_days} Days Data:
         """解析预测响应"""
         import re
         
+        print(f'_parse_prediction_response: {response}')
         # 提取分析
         analysis_match = re.search(r'<analysis>(.*?)</analysis>', response, re.DOTALL)
         analysis = analysis_match.group(1).strip() if analysis_match else ""

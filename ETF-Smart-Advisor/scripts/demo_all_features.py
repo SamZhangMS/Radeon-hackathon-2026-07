@@ -226,7 +226,7 @@ class FeatureDemo:
         print("="*70 + "\n")
         
         # 选择测试标的
-        test_symbols = self.fetcher.get_etf_list()[:5]
+        test_symbols = [] # self.fetcher.get_etf_list()[:5]
         if not test_symbols:
             test_symbols = ["SH510050", "SH510300", "SH510500", "SZ159919", "SZ159915"]
         
@@ -395,7 +395,7 @@ class FeatureDemo:
                     'api_endpoint': 'POST /api/analyze',
                     'formatted': f"建议: {advice.get('signal', 'N/A')}, 评分: {advice.get('score', 0)}/8, 趋势: {tech.get('trend', 'N/A')}"
                 }
-                print(f"   ✅ 技术分析完成: {advice.get('signal', 'N/A')}")
+                print(f"   ✅ 技术分析完成: {self.results['technical_analysis']}")
             else:
                 self.results['technical_analysis'] = {
                     'success': False, 
@@ -444,7 +444,7 @@ class FeatureDemo:
                     'api_endpoint': 'POST /api/predict',
                     'formatted': f"预测变化: {pred.get('predicted_change', 0):.2%}, 置信度: {pred.get('confidence', 0):.2f}"
                 }
-                print(f"   ✅ 预测完成: {self.results}")
+                print(f"   ✅ 预测完成: {self.results['prediction']}")
             else:
                 self.results['prediction'] = {
                     'success': False, 
@@ -486,7 +486,7 @@ class FeatureDemo:
                     'api_endpoint': 'POST /api/recommend',
                     'formatted': f"建议: {advice.get('signal', 'N/A')}, 评分: {advice.get('score', 0)}/8"
                 }
-                print(f"   ✅ 建议: {advice.get('signal', 'N/A')}")
+                print(f"   ✅ _demo_recommendation: {self.results['recommendation']}")
             else:
                 self.results['recommendation'] = {
                     'success': False, 
@@ -603,7 +603,7 @@ class FeatureDemo:
                         'api_endpoint': f'POST /api/rag/search (query: "{query}")',
                         'formatted': f"查询: {query}, 找到 {len(results)} 条结果"
                     }
-                    print(f"   ✅ RAG 搜索: {query} ({len(results)} 条)")
+                    print(f"   ✅ RAG 搜索: {query} ({len(results)} 条\n{results})")
                 else:
                     self.results[key] = {
                         'success': False, 
@@ -671,7 +671,7 @@ class FeatureDemo:
                 'api_endpoint': 'POST /api/llm/chat',
                 'formatted': f"回复: {response[:100]}..."
             }
-            print(f"   ✅ LLM 对话完成: {len(response)} 字符")
+            print(f"   ✅ LLM 对话完成: {len(response)} 字符\nmessages:{messages[1]['content']}\n回复: {response[:100]}...")
         except Exception as e:
             self.results['llm_chat'] = {
                 'success': False, 
@@ -749,6 +749,7 @@ class FeatureDemo:
                 'api_endpoint': f'{method} {endpoint}',
                 'formatted': f"{method} {endpoint}" + (" ✅" if result.get('success') else " ❌")
             }
+            print(f'{self.results[f"curl_{key}"]['formatted']}')
         
         # 执行 POST 测试
         for i, (key, method, endpoint, data) in enumerate(post_tests):
@@ -762,6 +763,7 @@ class FeatureDemo:
                 'api_endpoint': f'{method} {endpoint}',
                 'formatted': f"{method} {endpoint}" + (" ✅" if result.get('success') else " ❌")
             }
+            print(f'{self.results[f"curl_{key}"]["formatted"]}')
         
         print("   ✅ curl 调用测试完成")
     
@@ -1484,12 +1486,12 @@ def main():
     args = parser.parse_args()
     
     print("="*70)
-    print("🏦 ETF-Smart Advisor 完整功能演示")
+    print("🏦 ETF-Smart Advisor demo for all features")
     print("="*70)
-    print("\n⚠️  请确保:")
-    print("   1. Qwen 模型已下载: ./models/Qwen/Qwen3.6-27B-GGUF")
-    print("   2. ETF 数据在: ./data/1D/")
-    print("   3. 已安装所有依赖包")
+    print("\n⚠️  Please ensure the following conditions are met before running the demo:")
+    print("   1. Qwen model is : ./models/Qwen/Qwen3.6-27B-GGUF")
+    print("   2. ETF data is available in: ./data/history/1D/. (Download dataset from  https://www.kaggle.com/datasets/samsamsamzz/ahistory and unzip the file to data/ folder which is the same level of app (ensure the dir structure is: app/data/history/1D/xxxxxxxx.parquet))")
+    print("   3. All dependencies are installed: pip install -r requirements.txt")
     if args.with_curl:
         print("   4. 服务已启动: bash scripts/start.sh")
     print("="*70 + "\n")
@@ -1506,16 +1508,16 @@ def main():
         asyncio.run(runner.run_all_demos())
         
         # 生成 HTML 报告
-        print("\n📄 生成 HTML 报告...")
+        print("\n📄 The HTML based report is generated...")
         html_content = runner.generate_html_report()
         report_path = runner.save_report(html_content)
         
         print("\n" + "="*70)
-        print("🎉 演示完成!")
-        print(f"📊 报告路径: {report_path}")
+        print("🎉 Demo done!")
+        print(f"📊 dir of report: {report_path}")
         if args.with_curl:
             print("📡 curl 命令示例已包含在报告中")
-        print(f"🔌 测试了 {len(runner.api_endpoints)} 个 API 端点")
+        print(f"🔌 Tested {len(runner.api_endpoints)}  API endpoints")
         print("="*70)
         
         # 尝试在浏览器中打开报告
