@@ -548,9 +548,11 @@ class BaseBatchSkill(BaseSkill):
                             latest_date = self._get_data_latest_date(data)
                             if latest_date:
                                 self._save_cached_result(symbol, latest_date, r)
-            
-            print(f"   ✅ Batch {batch_id}: Processed {len(results)} results. time taken: {time.time()-timer0:.2f}s")
-            return results if results else []
+                print(f"   ✅ Batch {batch_id}: Processed {len(results)} results. time taken: {time.time()-timer0:.2f}s")
+                return results
+            else:
+                print(f"   ✅ Batch {batch_id}: Processed 0 results. time taken: {time.time()-timer0:.2f}s")
+                return []
             
         except Exception as e:
             # ✅ 捕获并打印详细的错误信息

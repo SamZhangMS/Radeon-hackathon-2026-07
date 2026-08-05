@@ -414,7 +414,7 @@ class LLMClient:
             if result.get('success'):
                 return result.get('response', '')
             else:
-                return f"生成失败: {result.get('error', '未知错误')}\nTrackback:{format_exception(e)}"
+                return f"生成失败: {result.get('error', '未知错误')}"
                 
         finally:
             if enable_thinking is not None:

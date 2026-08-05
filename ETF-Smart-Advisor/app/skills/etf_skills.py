@@ -664,8 +664,24 @@ Output JSON:
             
             # print(f'ETFRankingSkill._process_batch\n{response}')
             data = self._extract_json(response)
+            print(f'ETFRankingSkill._process_batch data: {data}')
+            if data is None:
+                print(f'ETFRankingSkill._process_batch: No JSON data found')
+                return []
             rankings = data.get('rankings', []) if data else []
         
+            print(f'ETFRankingSkill._process_batch: found {len(rankings)} rankings')
+            if not rankings:
+                # 检查是否有 scores
+                scores = data.get('scores', [])
+                print(f'ETFRankingSkill._process_batch: found {len(scores)} scores (fallback)')
+                if scores:
+                    for idx, item in enumerate(scores):
+                        if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
+                            item['symbol'] = batch_symbols[idx]
+                    return [r for r in scores if r.get('symbol')]
+                return []
+            
             # ✅ 验证并补全 symbol
             for idx, item in enumerate(rankings):
                 if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
@@ -677,6 +693,109 @@ Output JSON:
             print(f"   ⚠️ Ranking failed: {e}\nTrackback:{format_exception(e)}")
             return []
     
+    
+    def _parse_response(self, response: str, batch_symbols: List[str] = None) -> List[Dict]:
+        """重写解析方法，专门处理 rankings 格式"""
+        results = []
+        
+        if not response or len(response.strip()) < 10:
+            print(f"[DEBUG] ETFRankingSkill: Empty or too short response")
+            return results
+        
+        print(f"[DEBUG] ETFRankingSkill: response length={len(response)}")
+        print(f"[DEBUG] ETFRankingSkill: batch_symbols={batch_symbols[:3] if batch_symbols else None}...")
+        
+        try:
+            data = self._extract_json(response)
+            print(f"[DEBUG] ETFRankingSkill: extracted data={data is not None}")
+            
+            if data is not None:
+                # ✅ 优先处理 rankings 格式
+                rankings = data.get('rankings', [])
+                print(f"[DEBUG] ETFRankingSkill: found {len(rankings)} rankings")
+                
+                if rankings:
+                    for idx, item in enumerate(rankings):
+                        if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
+                            item['symbol'] = batch_symbols[idx]
+                        if item.get('symbol'):
+                            # 处理 rank_score
+                            if 'rank_score' in item:
+                                try:
+                                    item['score'] = int(item['rank_score'])
+                                except (ValueError, TypeError):
+                                    item['score'] = 50
+                            # 也检查 score
+                            elif 'score' in item:
+                                try:
+                                    item['score'] = int(item['score'])
+                                except (ValueError, TypeError):
+                                    item['score'] = 50
+                            else:
+                                item['score'] = 50
+                            results.append(item)
+                            print(f"[DEBUG] ETFRankingSkill: added {item.get('symbol')} score={item.get('score')}")
+                    
+                    if results:
+                        print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from rankings")
+                        return results
+                
+                # 如果没有 rankings，尝试 scores（fallback）
+                scores = data.get('scores', [])
+                print(f"[DEBUG] ETFRankingSkill: found {len(scores)} scores (fallback)")
+                
+                if scores:
+                    for idx, item in enumerate(scores):
+                        if not item.get('symbol') and batch_symbols and idx < len(batch_symbols):
+                            item['symbol'] = batch_symbols[idx]
+                        if item.get('symbol'):
+                            if 'score' in item:
+                                try:
+                                    item['score'] = int(item['score'])
+                                except (ValueError, TypeError):
+                                    item['score'] = 50
+                            results.append(item)
+                    
+                    if results:
+                        print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from scores")
+                        return results
+                
+        except Exception as e:
+            print(f"[DEBUG] ETFRankingSkill: JSON extraction error: {e}")
+        
+        # Fallback: 尝试从响应中提取 symbol 和 score
+        if batch_symbols:
+            symbol_pattern = r'"symbol"\s*:\s*"([^"]+)"'
+            score_pattern = r'"(?:rank_)?score"\s*:\s*([-+]?\d+)'
+            
+            symbols_found = re.findall(symbol_pattern, response)
+            scores_found = re.findall(score_pattern, response)
+            
+            print(f"[DEBUG] ETFRankingSkill: fallback found {len(symbols_found)} symbols, {len(scores_found)} scores")
+            
+            if symbols_found:
+                count = min(len(symbols_found), len(batch_symbols))
+                for i in range(count):
+                    symbol = symbols_found[i]
+                    if len(symbol) >= 4:
+                        try:
+                            score_val = int(scores_found[i]) if i < len(scores_found) else 50
+                        except (ValueError, TypeError):
+                            score_val = 50
+                        
+                        results.append({
+                            'symbol': symbol,
+                            'score': score_val,
+                            'signal': 'hold',
+                            'reason': 'Parsed from response'
+                        })
+                
+                if results:
+                    print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from fallback")
+                    return results
+        
+        print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results")
+        return results
     def _fallback(self, batch: List[Dict], **kwargs) -> List[Dict]:
         """Fallback ranking - keep original order"""
         return batch
