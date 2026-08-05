@@ -444,7 +444,7 @@ class FeatureDemo:
                     'api_endpoint': 'POST /api/predict',
                     'formatted': f"预测变化: {pred.get('predicted_change', 0):.2%}, 置信度: {pred.get('confidence', 0):.2f}"
                 }
-                print(f"   ✅ 预测完成: {pred.get('predicted_change', 0):.2%}")
+                print(f"   ✅ 预测完成: {self.results}")
             else:
                 self.results['prediction'] = {
                     'success': False, 
@@ -1361,9 +1361,10 @@ class FeatureDemo:
                 </div>
 """
                 
-                if formatted and not is_top_recommendation:
-                    html += f'                <div class="content">{self._escape_html(formatted)}</div>\n'
-                elif result_data and not is_top_recommendation:
+                # if formatted and not is_top_recommendation:
+                #     html += f'                <div class="content">{self._escape_html(formatted)}</div>\n'
+                # elif result_data and not is_top_recommendation:
+                if result_data:
                     if isinstance(result_data, dict):
                         html += f'                <div class="content">{self._escape_html(json.dumps(result_data, ensure_ascii=False, indent=2)[:500])}</div>\n'
                     elif isinstance(result_data, list):

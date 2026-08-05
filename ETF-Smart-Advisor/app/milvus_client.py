@@ -134,7 +134,7 @@ class MilvusConnection:
         """确保 Collection 存在"""
         # ✅ 直接检查 client 是否存在，不依赖 _is_available()
         if self._client is None:
-            print(f'[milvus - _ensure_collection], self._client is None')
+            # print(f'[milvus - _ensure_collection], self._client is None')
             return False
         
         try:
@@ -146,7 +146,7 @@ class MilvusConnection:
             # 创建 Schema
             schema = schema_func()
             if schema is None:
-                print(f'[milvus - _ensure_collection], schema is None')
+                # print(f'[milvus - _ensure_collection], schema is None')
                 return False
             
             # 创建索引
@@ -204,7 +204,7 @@ class MilvusConnection:
                 self._client.load_collection(collection_name)
             except Exception as e:
                 # 如果已加载会抛出异常，忽略
-                pass
+                print(f'[milvus - _query_data] load_collection warning: {e}\nTrackback:{format_exception(e)}')
             
             return self._client.query(
                 collection_name=collection_name,
@@ -224,7 +224,7 @@ class MilvusConnection:
                         limit=limit
                     )
                 except Exception as retry_e:
-                    print(f'[milvus - _query_data] Retry failed: {retry_e}')
+                    print(f'[milvus - _query_data] Retry failed: {retry_e}\nTrackback:{format_exception(retry_e)}')
                     return []
             else:
                 print(f'[milvus - _query_data], _query_data 查询失败: {e}\nTrackback:{format_exception(e)}')
@@ -345,10 +345,10 @@ class BaseCollectionManager(ABC):
     def __init__(self, collection_name: str):
         self.connection = MilvusConnection()
         self.collection_name = collection_name
-        print(f'[BaseCollectionManager.__init__] Ensuring collection: {collection_name}')
+        # print(f'[BaseCollectionManager.__init__] Ensuring collection: {collection_name}')
         try:
             result = self._ensure_collection()
-            print(f'[BaseCollectionManager.__init__] Collection {collection_name} ensure result: {result}')
+            # print(f'[BaseCollectionManager.__init__] Collection {collection_name} ensure result: {result}')
         except Exception as e:
             logger.warning(f"⚠️ 确保 Collection {collection_name} 失败: {e}\nTrackback:{format_exception(e)}")
     
@@ -422,6 +422,13 @@ class KnowledgeManager(BaseCollectionManager):
         # 如果是内存模式，构建索引
         if self.connection._memory_mode:
             self._build_memory_index()
+        else:
+            # ✅ 确保 Collection 已加载
+            try:
+                self.connection._client.load_collection(self.collection_name)
+                logger.info(f"✅ Collection {self.collection_name} 已加载")
+            except Exception as e:
+                logger.warning(f"⚠️ 加载 Collection 失败: {e}\nTrackback:{format_exception(e)}")
     
     def _create_schema(self):
         """创建知识库 Schema"""
@@ -536,6 +543,12 @@ class KnowledgeManager(BaseCollectionManager):
         
         # Milvus 模式
         try:
+            if self.connection._client is not None:
+                try:
+                    self.connection._client.load_collection(self.collection_name)
+                except Exception as e:
+                    print(f'[milvus - search] load_collection warning: {e}\nTrackback:{format_exception(e)}')
+                    
             query_embedding = self.embedder.encode([query], convert_to_numpy=True)
             
             filter_expr = None
@@ -959,11 +972,22 @@ class MilvusClient:
         self.feedback = FeedbackManager()
         
         # ✅ 确保所有 collection 已创建
-        for manager in [self.knowledge, self.recommendation, self.feedback]:
+        for name, manager in [
+            ("knowledge", self.knowledge),
+            ("recommendation", self.recommendation),
+            ("feedback", self.feedback)
+        ]:
             try:
                 manager._ensure_collection()
+                # 尝试加载 Collection
+                if manager.connection._client is not None:
+                    try:
+                        manager.connection._client.load_collection(manager.collection_name)
+                        print(f"   ✅ Collection '{name}' loaded")
+                    except Exception as e:
+                        print(f"   ⚠️ Collection '{name}' load skipped: {e}\nTrackback:{format_exception(e)}")
             except Exception as e:
-                print(f"   ⚠️ Failed to ensure collection for {manager.collection_name}: {e}")
+                print(f"   ⚠️ Failed to ensure collection '{name}': {e}\nTrackback:{format_exception(e)}")
         
         logger.info("✅ Milvus 客户端初始化完成")
         logger.info(f"   📚 Collections: knowledge, recommendation, feedback")
