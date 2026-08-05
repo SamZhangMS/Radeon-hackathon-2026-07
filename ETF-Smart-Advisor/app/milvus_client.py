@@ -179,7 +179,7 @@ class MilvusConnection:
                 return False
         
             self._client.insert(collection_name, data)
-            print(f'[milvus - _insert_data], 插入数据成功: {len(data)} 条')
+            # print(f'[milvus - _insert_data], 插入数据成功: {len(data)} 条')
             return True
         except Exception as e:
             logger.warning(f"⚠️ 插入数据失败: {e}\nTrackback:{format_exception(e)}")
@@ -238,7 +238,7 @@ class MilvusConnection:
         
         try:
             self._client.delete(collection_name=collection_name, filter=expr)
-            print(f'[milvus - _delete_data], 删除数据成功')
+            # print(f'[milvus - _delete_data], 删除数据成功')
             return True
         except Exception as e:
             logger.warning(f"⚠️ _delete_data 删除失败: {e}\nTrackback:{format_exception(e)}")
@@ -829,7 +829,7 @@ class RecommendationCacheManager(BaseCollectionManager):
                 "updated_at": now,
                 "dummy_vector": [0.0]
             }])
-            print(f"✅ 缓存已保存: {symbol} - {analysis_type} (最新日期: {latest_date})")
+            # print(f"✅ 缓存已保存: {symbol} - {analysis_type} (最新日期: {latest_date})")
         except Exception as e:
             print(f"❌ 缓存保存失败: {symbol} - {analysis_type}: {e}")
             

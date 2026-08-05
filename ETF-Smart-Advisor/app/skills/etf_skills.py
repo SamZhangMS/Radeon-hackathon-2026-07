@@ -330,11 +330,11 @@ Output JSON ONLY (no other text):
             return results
         
         print(f"[DEBUG] _parse_response: response length={len(response)}")
-        print(f"[DEBUG] _parse_response: batch_symbols={batch_symbols[:5] if batch_symbols else None}...")
+        # print(f"[DEBUG] _parse_response: batch_symbols={batch_symbols[:5] if batch_symbols else None}...")
         
         try:
             data = self._extract_json(response)
-            print(f"[DEBUG] _parse_response: extracted data={data is not None}")
+            print(f"[DEBUG] _parse_response: extracted data={data}")
             if data is not None:  # ✅ 使用 is not None 而不是 if data
                 # 尝试获取 scores（ETFAnalyzeSkill 格式）
                 scores = data.get('scores', [])

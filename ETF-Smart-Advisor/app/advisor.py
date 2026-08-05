@@ -597,7 +597,7 @@ MA60: {indicators['ma60']:.4f}
         
         格式: 
         ETF代码|symbol
-        日期,open,high,low,close,volume,amount
+        date,open,high,low,close,volume,amount
         2024-01-15,3.4000,3.4500,3.3800,3.4200,1234567,12345678
         2024-01-16,3.4200,3.4800,3.4000,3.4450,1345678,13456789
         ...
@@ -627,63 +627,63 @@ MA60: {indicators['ma60']:.4f}
         """
         total_etfs = compressed_data.count('\n') + 1
         
-        prompt = f"""# 任务
-你是专业的ETF技术分析师。请分析以下 {total_etfs} 个ETF的原始OHLCVA数据，选出最具投资价值的 Top {top_k} 个。
+        prompt = f"""# Task
+You are a professional ETF technical analyst. Please analyze the following {total_etfs} ETFs' raw OHLCVA data and select the top {top_k} with the highest investment value.
 
-# 数据格式说明
-每个ETF的数据以 "代码|510050" 开头，后面是CSV格式的完整历史数据。
-数据包含以下字段：日期,开盘价,最高价,最低价,收盘价,成交量,成交额
+# Data Format Explanation
+Each ETF's data starts with "Symbol|510050", followed by complete historical data in CSV format.
+The data includes the following columns: Date, Open, High, Low, Close, Volume, Amount
 
-示例：
-代码|510050
+Example:
+Symbol|510050
 date,open,high,low,close,volume,amount
 2024-01-15,3.4000,3.4500,3.3800,3.4200,1234567,12345678
 2024-01-16,3.4200,3.4800,3.4000,3.4450,1345678,13456789
 ...
 
-# 你需要自己计算的技术分析指标
-请根据原始数据自行计算以下指标：
-1. **均线系统**：MA5、MA10、MA20、MA60
-2. **趋势判断**：上升/下降/震荡趋势，均线排列状态
-3. **RSI**：相对强弱指标（14日）
-4. **MACD**：快线、慢线、柱状线
-5. **布林带**：上轨、中轨、下轨，价格位置
-6. **量价关系**：成交量与价格的配合情况
-7. **K线形态**：识别关键形态（突破、反转、持续等）
-8. **支撑压力位**：根据历史高低点判断
-9. **成交额分析**：资金流入流出情况
+# You need to calculate the following indicators based on the raw data:
+Please calculate the following indicators based on the raw data:
+1. **Moving Averages**: MA5, MA10, MA20, MA60
+2. **Trend Analysis**: Uptrend/ downtrend/ Sideways trend, Moving average arrangement
+3. **RSI**: Relative Strength Index (14-day)
+4. **MACD**: Fast line, Slow line, Histogram
+5. **Bollinger Bands**: upper band, middle band, lower band, price position
+6. **Volume-Price Relationship**: The relationship between trading volume and price
+7. **Candlestick Patterns**: Identification of key patterns (breakouts, reversals, continuations, etc.)
+8. **Support and Resistance Levels**: Determined based on historical highs and lows
+9. **Turnover Analysis**: Analysis of fund inflows and outflows
 
-# 数据
+# Data Input
 {compressed_data}
 
-# 输出要求
-严格按照以下JSON格式输出，包含你计算的指标结果：
+# Output Requirements
+Strictly output in the following JSON format, including the calculated indicators:
 
 {{
     "recommendations": [
         {{
-            "symbol": "ETF代码",
+            "symbol": "ETF Symbol",
             "rank": 1,
             "calculated_indicators": {{
-                "ma5": 数字,
-                "ma20": 数字,
-                "ma60": 数字,
-                "rsi": 数字,
-                "macd_hist": 数字,
+                "ma5": number,
+                "ma20": number,
+                "ma60": number,
+                "rsi": number,
+                "macd_hist": number,
                 "trend": "up/down/sideways",
-                "bb_position": "上轨附近/中轨附近/下轨附近",
-                "volume_trend": "放量/缩量/平稳"
+                "bb_position": "upper band/middle band/lower band",
+                "volume_trend": "increasing/decreasing/stable"
             }},
-            "reason": "选择理由（50字以内，结合你计算的指标说明）",
-            "trend_analysis": "趋势判断",
-            "signals": ["信号1", "信号2", "信号3"],
+            "reason": "selection reason (within 50 characters, based on calculated indicators)",
+            "trend_analysis": "trend analysis",
+            "signals": ["signal1", "signal2", "signal3"],
             "risk_level": "low/medium/high",
-            "suggested_action": "买入/持有/观望"
+            "suggested_action": "buy/hold/hold"
         }}
     ]
 }}
 
-只输出JSON，不要其他内容。"""
+Only output JSON, no other content."""
 
         try:
             response = self.llm.generate_response(
@@ -822,18 +822,18 @@ date,open,high,low,close,volume,amount
             
             current_price = float(df['close'].iloc[-1])
             
-            prompt = f"""# 任务
-基于以下ETF数据预测未来20个交易日的收盘价。
+            prompt = f"""# Task
+Predict the closing prices for the next 20 trading days based on the following ETF data.
 
-# 输入数据
-标的: {symbol}
-当前价格: {current_price:.4f}
-最近{n_days}天数据:
+# Input Data
+Symbol: {symbol}
+Current Price: {current_price:.4f}
+Recent {n_days} Days Data:
 {data_str}
 
-# 输出格式
-<analysis>简要分析（不多于100字）</analysis>
-<prediction>[价格数组，20个数值]</prediction>"""
+# Output Format
+<analysis>Brief Analysis (not more than 100 characters)</analysis>
+<prediction>[Price Array, 20 Values]</prediction>"""
 
             response = llm.generate_response(
                 messages=[{"role": "user", "content": prompt}],
@@ -911,7 +911,7 @@ date,open,high,low,close,volume,amount
         return {
             'recommendation': 'neutral',
             'confidence': 0,
-            'reasons': ['数据不足'],
+            'reasons': ['Insufficient data'],
             'signal': 'wait',
             'latest_date': None
         }
@@ -921,7 +921,7 @@ date,open,high,low,close,volume,amount
         return {
             'recommendation': 'neutral',
             'confidence': 0,
-            'reasons': [f'分析失败: {error}'],
+            'reasons': [f'Analysis failed: {error}'],
             'signal': 'wait',
             'latest_date': None,
             'error': error

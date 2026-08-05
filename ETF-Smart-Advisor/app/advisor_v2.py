@@ -42,8 +42,8 @@ class InvestmentAdvisorV2:
         self.cache_time = {}
         self.cache_ttl = 3600
         
-        print("✅ InvestmentAdvisorV2 初始化完成")
-        print(f"   📋 已注册技能: {list(self.skills.keys())}")
+        print("✅ InvestmentAdvisorV2 initiated")
+        print(f"   📋 Registered skills: {list(self.skills.keys())}")
     
     def get_top_recommendations(
         self, 
@@ -62,15 +62,15 @@ class InvestmentAdvisorV2:
             return {'error': '没有可用的ETF'}
         
         print(f"\n{'='*60}")
-        print(f"📊 Skill-based ETF分析")
-        print(f"   ETF数量: {len(symbols)}")
+        print(f"📊 Skill-based ETF analysis (about 4 hours)")
+        print(f"   ETF: {len(symbols)}")
         print(f"   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*60}\n")
         
         # ============================================================
         # 阶段1: 快速分析Skill
         # ============================================================
-        print("🔍 阶段1: 快速分析 (Skill: ETFAnalyzeSkill)")
+        print("🔍 Phase1: Quick Analysis (Skill: ETFAnalyzeSkill)")
         print("-" * 50)
         
         stage1_start = time.time()
@@ -80,8 +80,8 @@ class InvestmentAdvisorV2:
             self.config['stage1_keep']
         )
         
-        print(f"   ✅ 耗时: {time.time() - stage1_start:.2f}s")
-        print(f"   📊 候选: {len(candidates)} 个\n")
+        print(f"   ✅ Time used: {time.time() - stage1_start:.2f}s")
+        print(f"   📊 Selected: {len(candidates)} 个\n")
         
         if len(candidates) < 10:
             return self._empty_result("阶段1候选不足")
@@ -89,7 +89,7 @@ class InvestmentAdvisorV2:
         # ============================================================
         # 阶段2: 精细排名Skill
         # ============================================================
-        print("🏆 阶段2: 精细排名 (Skill: ETFRankingSkill)")
+        print("🏆 Phase2: Fine Ranking (Skill: ETFRankingSkill)")
         print("-" * 50)
         
         stage2_start = time.time()
@@ -99,8 +99,8 @@ class InvestmentAdvisorV2:
             self.config['stage2_keep']
         )
         
-        print(f"   ✅ 耗时: {time.time() - stage2_start:.2f}s")
-        print(f"   📊 候选: {len(ranked)} 个\n")
+        print(f"   ✅ Time used: {time.time() - stage2_start:.2f}s")
+        print(f"   📊 Selected: {len(ranked)} 个\n")
         
         if len(ranked) < 3:
             return self._empty_result("阶段2候选不足")
@@ -108,7 +108,7 @@ class InvestmentAdvisorV2:
         # ============================================================
         # 阶段3: 深度分析Skill
         # ============================================================
-        print("📊 阶段3: 深度分析 (Skill: ETFDeepAnalyzeSkill)")
+        print("📊 Phase3: Deep Analysis (Skill: ETFDeepAnalyzeSkill)")
         print("-" * 50)
         
         stage3_start = time.time()
@@ -118,8 +118,8 @@ class InvestmentAdvisorV2:
             self.config['stage3_keep']
         )
         
-        print(f"   ✅ 耗时: {time.time() - stage3_start:.2f}s")
-        print(f"   📊 最终推荐: {len(final_results)} 个\n")
+        print(f"   ✅ Time used: {time.time() - stage3_start:.2f}s")
+        print(f"   📊 Final Recommendations: {len(final_results)} 个\n")
         
         # ============================================================
         # 格式化结果
@@ -139,7 +139,7 @@ class InvestmentAdvisorV2:
         }
         
         print(f"\n{'='*60}")
-        print(f"✅ 完成! 总耗时: {result['summary']['total_time']}")
+        print(f"✅ Completed! Total time: {result['summary']['total_time']}")
         print(f"{'='*60}\n")
         
         return result
