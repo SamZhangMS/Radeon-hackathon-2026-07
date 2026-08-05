@@ -575,7 +575,7 @@ Data format: Symbol|Init Score|Signal|YYYY-MM-DD|O|H|L|C|V
 
 Task: Based on raw OHLCV data and initial scores, re-evaluate the relative strength.
 
-Output JSON: {"rankings": [{"symbol": "Symbol", "rank_score": Score, "signal": "buy/hold/sell", "reason": "Reason"}]}"""
+Output JSON: {"rankings": [{"symbol": "Symbol", "rank_score": 0-100 integer, "signal": "buy/hold/sell", "reason": "Reason"}]}"""
     
 
     def _build_batch_prompt(self, prompts: List[str], symbols: List[str], **kwargs) -> str:
@@ -588,7 +588,7 @@ Data:
 Output JSON ONLY (no other text):
 {{
     "rankings": [
-        {{"symbol": "Symbol", "rank_score": Score, "signal": "buy/hold/sell", "reason": "Reason"}}
+        {{"symbol": "Symbol", "rank_score": 0-100 integer, "signal": "buy/hold/sell", "reason": "Reason"}}
     ]
 }}"""
     def _load_item_data(self, symbol: str, **kwargs) -> Optional[pd.DataFrame]:
@@ -649,7 +649,7 @@ Data:
 Output JSON:
 {{
     "rankings": [
-        {{"symbol": "Symbol", "rank_score": Score, "signal": "buy/hold/sell", "reason": "Reason"}}
+        {{"symbol": "Symbol", "rank_score": 0-100 integer, "signal": "buy/hold/sell", "reason": "Reason"}}
     ]
 }}"""
 
