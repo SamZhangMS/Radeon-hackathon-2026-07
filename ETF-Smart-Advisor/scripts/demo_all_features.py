@@ -61,8 +61,8 @@ class FeatureDemo:
             "system_status": {"method": "GET", "endpoint": "/api/status", "name": "获取系统状态"},
             
             # 数据获取
-            "get_quote": {"method": "GET", "endpoint": "/api/quote/{symbol}", "name": "获取实时行情"},
-            "get_etf_list": {"method": "GET", "endpoint": "/api/etfs", "name": "获取 ETF 列表"},
+            # "get_quote": {"method": "GET", "endpoint": "/api/quote/{symbol}", "name": "获取实时行情"},
+            # "get_etf_list": {"method": "GET", "endpoint": "/api/etfs", "name": "获取 ETF 列表"},
             
             # 技术分析
             "technical_analysis": {"method": "POST", "endpoint": "/api/analyze", "name": "技术分析"},
@@ -652,7 +652,7 @@ class FeatureDemo:
                 {"role": "user", "content": f"请简要分析{symbol}的当前走势"}
             ]
             
-            quote = self.fetcher.get_etf_quote(symbol)
+            quote = self.fetcher.get_history(symbol) # get_etf_quote(symbol)
             if quote:
                 context = f"{symbol} 当前价格: {quote['price']:.3f}, 涨跌幅: {quote['change']:+.2f}%"
                 messages[1]["content"] = f"{context}\n请给出简要分析和建议。"
@@ -724,7 +724,7 @@ class FeatureDemo:
             ("health", "GET", "/health"),
             ("system_status", "GET", "/api/status"),
             ("get_etf_list", "GET", "/api/etfs"),
-            ("get_quote", "GET", f"/api/quote/{symbol}"),
+            # ("get_quote", "GET", f"/api/quote/{symbol}"),
             ("top_recommendations_v2", "GET", "/api/top-recommendations/v2"),
             ("rag_stats", "GET", "/api/rag/stats"),
         ]
@@ -830,7 +830,7 @@ class FeatureDemo:
         # 功能分类
         categories = {
             '系统状态': ['system_status'],
-            '数据获取': ['get_quote', 'get_etf_list'],
+            # '数据获取': ['get_quote', 'get_etf_list'],
             '技术分析': ['technical_analysis'],
             '价格预测': ['prediction'],
             '投资建议': ['recommendation'],

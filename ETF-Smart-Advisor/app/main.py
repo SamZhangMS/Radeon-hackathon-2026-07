@@ -275,24 +275,24 @@ async def get_ensemble_prediction(request: SymbolRequest):
         print(f"get_ensemble_prediction error. Exception:{e}\nTrackback:{format_exception(e)}")
         raise HTTPException(500, str(e))
 
-@app.get("/api/quote/{symbol}", dependencies=[Depends(verify_token)])
-async def get_quote(symbol: str):
-    """获取实时行情"""
-    try:
-        # ✅ 使用 agent.get_quote_sync（内部调用 fetcher）
-        result = agent.get_quote_sync(symbol)
-        if not result.get("success"):
-            raise HTTPException(404, result.get("error", f"未找到 {symbol}"))
+# @app.get("/api/quote/{symbol}", dependencies=[Depends(verify_token)])
+# async def get_quote(symbol: str):
+#     """获取实时行情"""
+#     try:
+#         # ✅ 使用 agent.get_quote_sync（内部调用 fetcher）
+#         result = agent.get_quote_sync(symbol)
+#         if not result.get("success"):
+#             raise HTTPException(404, result.get("error", f"未找到 {symbol}"))
         
-        return {
-            "status": "success",
-            "data": result.get("data")
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"get_quote error. Exception:{e}\nTrackback:{format_exception(e)}")
-        raise HTTPException(500, str(e))
+#         return {
+#             "status": "success",
+#             "data": result.get("data")
+#         }
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         print(f"get_quote error. Exception:{e}\nTrackback:{format_exception(e)}")
+#         raise HTTPException(500, str(e))
 
 
 @app.get("/api/etfs", dependencies=[Depends(verify_token)])

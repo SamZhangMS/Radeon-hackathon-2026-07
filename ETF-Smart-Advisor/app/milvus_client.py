@@ -140,7 +140,7 @@ class MilvusConnection:
         try:
             # ✅ 检查 collection 是否存在
             if self._client.has_collection(collection_name):
-                print(f'[milvus - _ensure_collection] Collection {collection_name} already exists')
+                # print(f'[milvus - _ensure_collection] Collection {collection_name} already exists')
                 return True
             
             # 创建 Schema
@@ -154,7 +154,7 @@ class MilvusConnection:
             if index_func:
                 index_params = index_func()
             
-            print(f'[milvus - _ensure_collection] Creating collection: {collection_name}')
+            # print(f'[milvus - _ensure_collection] Creating collection: {collection_name}')
             self._client.create_collection(
                 collection_name=collection_name,
                 schema=schema,
