@@ -97,10 +97,10 @@ class MilvusConnection:
             
             self._client = PyMilvusClient(
                 uri=uri,
-                timeout=60,
+                timeout=600,
                 keepalive_options={
-                    'keepalive_time_ms': 30000,  # 60000,
-                    'keepalive_timeout_ms': 10000, # 20000,
+                    'keepalive_time_ms': 300000,  # 60000,
+                    'keepalive_timeout_ms': 100000, # 20000,
                     'keepalive_permit_without_calls': False, # True,
                 }
             )
