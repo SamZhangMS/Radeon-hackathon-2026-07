@@ -187,11 +187,11 @@ else
 fi
 
 # 14. Start the service
-echo ""
-echo "=============================================="
-echo "✅ Environment setup complete, starting service..."
-echo "=============================================="
-echo ""
+# echo ""
+# echo "=============================================="
+# echo "✅ Environment setup complete, starting service..."
+# echo "=============================================="
+# echo ""
 
-source etfadvisorvenv/bin/activate
-bash scripts/start.sh
+# source etfadvisorvenv/bin/activate
+# bash scripts/start.sh
