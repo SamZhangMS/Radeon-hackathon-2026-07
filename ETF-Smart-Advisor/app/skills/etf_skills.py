@@ -734,15 +734,15 @@ Output JSON:
                             else:
                                 item['score'] = 50
                             results.append(item)
-                            print(f"[DEBUG] ETFRankingSkill: added {item.get('symbol')} score={item.get('score')}")
+                            # print(f"[DEBUG] ETFRankingSkill: added {item.get('symbol')} score={item.get('score')}")
                     
                     if results:
-                        print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from rankings")
+                        # print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from rankings")
                         return results
                 
                 # 如果没有 rankings，尝试 scores（fallback）
                 scores = data.get('scores', [])
-                print(f"[DEBUG] ETFRankingSkill: found {len(scores)} scores (fallback)")
+                # print(f"[DEBUG] ETFRankingSkill: found {len(scores)} scores (fallback)")
                 
                 if scores:
                     for idx, item in enumerate(scores):
@@ -757,7 +757,7 @@ Output JSON:
                             results.append(item)
                     
                     if results:
-                        print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from scores")
+                        # print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from scores")
                         return results
                 
         except Exception as e:
@@ -791,10 +791,10 @@ Output JSON:
                         })
                 
                 if results:
-                    print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from fallback")
+                    # print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results from fallback")
                     return results
         
-        print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results")
+        # print(f"[DEBUG] ETFRankingSkill: returning {len(results)} results")
         return results
     def _fallback(self, batch: List[Dict], **kwargs) -> List[Dict]:
         """Fallback ranking - keep original order"""
