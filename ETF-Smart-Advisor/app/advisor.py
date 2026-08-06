@@ -818,6 +818,8 @@ date,open,high,low,close,volume,amount
             # 准备数据
             n_days = min(100, len(df))
             recent_df = df.tail(n_days).copy()
+            if recent_df is None or recent_df.empty:
+                return {'success': False, 'error': '数据为空'}
             data_str = self._df_to_text(recent_df)
             
             current_price = float(df['close'].iloc[-1])

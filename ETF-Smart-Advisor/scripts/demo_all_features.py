@@ -653,7 +653,7 @@ class FeatureDemo:
             ]
             
             quote = self.fetcher.get_history(symbol) # get_etf_quote(symbol)
-            if quote:
+            if len(quote)>0:
                 context = f"{symbol} 当前价格: {quote['price']:.3f}, 涨跌幅: {quote['change']:+.2f}%"
                 messages[1]["content"] = f"{context}\n请给出简要分析和建议。"
             

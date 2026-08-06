@@ -419,6 +419,9 @@ class KnowledgeManager(BaseCollectionManager):
         self._memory_embeddings = None
         self._load_knowledge()
         
+        if not self.connection._memory_mode and self.embedder is not None:
+            self._sync_to_milvus()
+            
         # 如果是内存模式，构建索引
         if self.connection._memory_mode:
             self._build_memory_index()
@@ -430,6 +433,45 @@ class KnowledgeManager(BaseCollectionManager):
             except Exception as e:
                 logger.warning(f"⚠️ 加载 Collection 失败: {e}\nTrackback:{format_exception(e)}")
     
+    def _sync_to_milvus(self):
+        """同步知识到 Milvus"""
+        if not self._knowledge_cache:
+            print("⚠️ 知识库为空，跳过同步")
+            return
+        
+        try:
+            stats = self.get_stats()
+            if stats.get("row_count", 0) > 0:
+                print(f"✅ 知识库已有 {stats.get('row_count', 0)} 条数据")
+                return
+        except:
+            pass
+        
+        print(f"📥 同步 {len(self._knowledge_cache)} 条知识到 Milvus...")
+        
+        insert_data = []
+        for item in self._knowledge_cache:
+            try:
+                embedding = self.embedder.encode([item['content']], convert_to_numpy=True)
+                insert_data.append({
+                    "id": item['id'],
+                    "title": item['title'],
+                    "content": item['content'],
+                    "category": item.get('category', 'general'),
+                    "embedding": embedding[0].tolist(),
+                    "created_at": datetime.now().isoformat(),
+                    "metadata": json.dumps(item.get('metadata', {}))
+                })
+            except Exception as e:
+                logger.warning(f"⚠️ 生成 embedding 失败 {item['id']}: {e}")
+        
+        if insert_data:
+            try:
+                self.connection._insert_data(self.collection_name, insert_data)
+                print(f"✅ 成功插入 {len(insert_data)} 条知识到 Milvus")
+            except Exception as e:
+                print(f"❌ 插入知识失败: {e}")
+                
     def _create_schema(self):
         """创建知识库 Schema"""
         if self.connection._client is None:
