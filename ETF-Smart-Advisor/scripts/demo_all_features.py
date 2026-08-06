@@ -58,51 +58,51 @@ class FeatureDemo:
         # API 端点定义
         self.api_endpoints = {
             # 系统状态
-            "system_status": {"method": "GET", "endpoint": "/api/status", "name": "获取系统状态"},
+            "system_status": {"method": "GET", "endpoint": "/api/status", "name": "Get System Status"},
             
             # 数据获取
-            # "get_quote": {"method": "GET", "endpoint": "/api/quote/{symbol}", "name": "获取实时行情"},
-            # "get_etf_list": {"method": "GET", "endpoint": "/api/etfs", "name": "获取 ETF 列表"},
+            # "get_quote": {"method": "GET", "endpoint": "/api/quote/{symbol}", "name": "Get Real-time Quotes"},
+            # "get_etf_list": {"method": "GET", "endpoint": "/api/etfs", "name": "Get ETF List"},
             
             # 技术分析
-            "technical_analysis": {"method": "POST", "endpoint": "/api/analyze", "name": "技术分析"},
+            "technical_analysis": {"method": "POST", "endpoint": "/api/analyze", "name": "Technical Analysis"},
             
             # 价格预测
-            "prediction": {"method": "POST", "endpoint": "/api/predict", "name": "价格预测"},
-            "ensemble_prediction": {"method": "POST", "endpoint": "/api/predict/ensemble", "name": "集成预测"},
+            "prediction": {"method": "POST", "endpoint": "/api/predict", "name": "Price Prediction"},
+            "ensemble_prediction": {"method": "POST", "endpoint": "/api/predict/ensemble", "name": "Ensemble Prediction"},
             
             # 投资建议
-            "recommendation": {"method": "POST", "endpoint": "/api/recommend", "name": "投资建议"},
+            "recommendation": {"method": "POST", "endpoint": "/api/recommend", "name": "Investment Recommendation"},
             
             # Top推荐
-            "top_recommendations_v2": {"method": "GET", "endpoint": "/api/top-recommendations/v2", "name": "Top推荐 (Skill-based)"},
+            "top_recommendations_v2": {"method": "GET", "endpoint": "/api/top-recommendations/v2", "name": "Top Recommendations (Skill-based)"},
             
             # RAG 知识库
-            "rag_search": {"method": "POST", "endpoint": "/api/rag/search", "name": "RAG 知识检索"},
-            "rag_stats": {"method": "GET", "endpoint": "/api/rag/stats", "name": "RAG 统计信息"},
+            "rag_search": {"method": "POST", "endpoint": "/api/rag/search", "name": "RAG Knowledge Search"},
+            "rag_stats": {"method": "GET", "endpoint": "/api/rag/stats", "name": "RAG Statistics"},
             
             # LLM 对话
-            "llm_chat": {"method": "POST", "endpoint": "/api/llm/chat", "name": "LLM 对话"},
+            "llm_chat": {"method": "POST", "endpoint": "/api/llm/chat", "name": "LLM Chat"},
             
             # Agent 聊天
-            "agent_chat": {"method": "POST", "endpoint": "/api/chat", "name": "Agent 智能聊天"},
+            "agent_chat": {"method": "POST", "endpoint": "/api/chat", "name": "Agent Smart Chat"},
             
             # 反馈学习
-            "feedback_stats": {"method": "GET", "endpoint": "/api/feedback/stats", "name": "反馈统计"},
+            "feedback_stats": {"method": "GET", "endpoint": "/api/feedback/stats", "name": "Feedback Statistics"},
             
             # 健康检查
-            "health": {"method": "GET", "endpoint": "/health", "name": "健康检查"},
+            "health": {"method": "GET", "endpoint": "/health", "name": "Health Check"},
         }
         
         print("="*70)
-        print("🚀 ETF-Smart Advisor 完整功能演示")
+        print("🚀 ETF-Smart Advisor - Complete Feature Demonstration")
         print("="*70)
-        print(f"📁 项目目录: {project_root}")
-        print(f"📁 报告目录: {self.report_dir}")
-        print(f"🔧 API 地址: {self.base_url}")
+        print(f"📁 Project Root: {project_root}")
+        print(f"📁 Report Directory: {self.report_dir}")
+        print(f"🔧 API URL: {self.base_url}")
         print(f"🔑 API Key: {self.api_key}")
-        print(f"📡 包含 curl 测试: {'是' if with_curl else '否'}")
-        print(f"📋 可测试 API: {len(self.api_endpoints)} 个")
+        print(f"📡 Include curl Tests: {'Yes' if with_curl else 'No'}")
+        print(f"📋 Testable APIs: {len(self.api_endpoints)}")
         print("="*70 + "\n")
     
     def _safe_call(self, func_name: str, func, *args, **kwargs) -> Any:
@@ -149,7 +149,7 @@ class FeatureDemo:
             else:
                 return {"success": False, "error": result.stderr or result.stdout}
         except subprocess.TimeoutExpired:
-            return {"success": False, "error": "请求超时"}
+            return {"success": False, "error": "Request timeout"}
         except Exception as e:
             return {"success": False, "error": str(e)}
     
@@ -183,7 +183,7 @@ class FeatureDemo:
     
     def init_services(self):
         """初始化所有服务"""
-        print("📦 初始化服务...")
+        print("📦 Initiating services...")
         
         # Agent
         print("  ├─ Agent...")
@@ -217,12 +217,12 @@ class FeatureDemo:
         print("  └─ Privacy Manager...")
         self.privacy = PrivacyManager()
         
-        print("✅ 所有服务初始化完成\n")
+        print("✅ All services initialized\n")
     
     async def run_all_demos(self):
         """运行所有演示"""
         print("="*70)
-        print("📊 开始运行功能演示")
+        print("📊 Starting Complete Feature Demonstration")
         print("="*70 + "\n")
         
         # 选择测试标的
@@ -231,12 +231,12 @@ class FeatureDemo:
             test_symbols = ["SH510050", "SH510300", "SH510500", "SZ159919", "SZ159915"]
         
         symbol = test_symbols[0]
-        print(f"📌 使用标的: {symbol} (共 {len(test_symbols)} 个可用)\n")
+        print(f"📌 Using Symbol: {symbol} (Total {len(test_symbols)} Available)\n")
         
         # ============================================================
         # 1. 系统状态
         # ============================================================
-        print("📋 1. 系统状态")
+        print("📋 1. System Status")
         print("-"*50)
         await self._demo_system_status()
         
@@ -250,49 +250,49 @@ class FeatureDemo:
         # ============================================================
         # 3. 技术分析
         # ============================================================
-        print("\n📋 3. 技术分析")
+        print("\n📋 3. Technical Analysis")
         print("-"*50)
         await self._demo_technical_analysis(symbol)
         
         # ============================================================
         # 4. 价格预测
         # ============================================================
-        print("\n📋 4. 价格预测")
+        print("\n📋 4. Price Prediction")
         print("-"*50)
         await self._demo_prediction(symbol)
         
         # ============================================================
         # 5. 投资建议
         # ============================================================
-        print("\n📋 5. 投资建议")
+        print("\n📋 5. Investment Recommendations")
         print("-"*50)
         await self._demo_recommendation(symbol)
         
         # ============================================================
         # 6. Top推荐 (Skill-based)
         # ============================================================
-        print("\n📋 6. Top推荐 (Skill-based)")
+        print("\n📋 6. Top Recommendations (Skill-based)")
         print("-"*50)
         await self._demo_top_recommendations_v2()
         
         # ============================================================
         # 7. RAG 知识检索
         # ============================================================
-        print("\n📋 7. RAG 知识检索")
+        print("\n📋 7. RAG Knowledge Retrieval")
         print("-"*50)
         await self._demo_rag_search()
         
         # ============================================================
         # 8. LLM 对话
         # ============================================================
-        print("\n📋 8. LLM 对话")
+        print("\n📋 8. LLM Chat")
         print("-"*50)
         await self._demo_llm_chat(symbol)
         
         # ============================================================
         # 9. Agent 聊天
         # ============================================================
-        print("\n📋 9. Agent 聊天")
+        print("\n📋 9. Agent Chat")
         print("-"*50)
         await self._demo_agent_chat(symbol)
         
@@ -300,15 +300,15 @@ class FeatureDemo:
         # 10. curl 调用测试（可选）
         # ============================================================
         if self.with_curl:
-            print("\n📋 10. curl 调用测试")
+            print("\n📋 10. curl call test")
             print("-"*50)
             await self._demo_curl_calls(symbol)
         
         print("\n" + "="*70)
-        print("✅ 所有功能演示完成")
-        print(f"   ✅ 成功: {len([r for r in self.results.values() if r.get('success', False)])}")
-        print(f"   ❌ 失败: {len([r for r in self.results.values() if not r.get('success', False)])}")
-        print(f"   📡 curl 命令: {len(self.curl_commands)} 个")
+        print("✅ Completed all feature demonstration. ")
+        print(f"   ✅ Success: {len([r for r in self.results.values() if r.get('success', False)])}")
+        print(f"   ❌ Failure: {len([r for r in self.results.values() if not r.get('success', False)])}")
+        print(f"   📡 curl Commands: {len(self.curl_commands)}")
         print("="*70)
     
     # ============================================================
@@ -326,15 +326,15 @@ class FeatureDemo:
                 'api_endpoint': 'GET /api/status',
                 'formatted': self._format_json(status)
             }
-            print("   ✅ 系统状态获取成功")
+            print("   ✅ System status fetched successfully")
         except Exception as e:
             self.results['system_status'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': self.api_endpoints.get('system_status', {}).get('name', '系统状态'),
+                'api_name': self.api_endpoints.get('system_status', {}).get('name', 'System Status'),
                 'api_endpoint': 'GET /api/status'
             }
-            print(f"   ❌ 失败: {e}")
+            print(f"   ❌ Failure: {e}")
     
     async def _demo_data_fetching(self, symbol: str):
         """演示数据获取"""
@@ -391,27 +391,27 @@ class FeatureDemo:
                         'ma60': tech.get('ma60'),
                         'generatedby': advice.get('generatedby', 'N/A'),
                     },
-                    'api_name': self.api_endpoints.get('technical_analysis', {}).get('name', '技术分析'),
+                    'api_name': self.api_endpoints.get('technical_analysis', {}).get('name', 'technical_analysis'),
                     'api_endpoint': 'POST /api/analyze',
-                    'formatted': f"建议: {advice.get('signal', 'N/A')}, 评分: {advice.get('score', 0)}/8, 趋势: {tech.get('trend', 'N/A')}"
+                    'formatted': f"Recommendation: {advice.get('signal', 'N/A')}, Score: {advice.get('score', 0)}/8, Trend: {tech.get('trend', 'N/A')}"
                 }
-                print(f"   ✅ 技术分析完成: {self.results['technical_analysis']}")
+                print(f"   ✅ technical_analysis completed: {self.results['technical_analysis']}")
             else:
                 self.results['technical_analysis'] = {
                     'success': False, 
                     'error': result.get('error', '分析失败'),
-                    'api_name': self.api_endpoints.get('technical_analysis', {}).get('name', '技术分析'),
+                    'api_name': self.api_endpoints.get('technical_analysis', {}).get('name', 'technical_analysis'),
                     'api_endpoint': 'POST /api/analyze'
                 }
-                print(f"   ❌ 技术分析失败: {result.get('error', '未知错误')}")
+                print(f"   ❌ technical_analysis failed: {result.get('error', 'Unknown error')}")
         except Exception as e:
             self.results['technical_analysis'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': self.api_endpoints.get('technical_analysis', {}).get('name', '技术分析'),
+                'api_name': self.api_endpoints.get('technical_analysis', {}).get('name', 'technical_analysis'),
                 'api_endpoint': 'POST /api/analyze'
             }
-            print(f"   ❌ 失败: {e}")
+            print(f"   ❌ technical_analysis failed: {e}")
     
     async def _demo_prediction(self, symbol: str):
         """演示价格预测"""
@@ -421,7 +421,7 @@ class FeatureDemo:
                 self.results['prediction'] = {
                     'success': False, 
                     'error': '数据不足',
-                    'api_name': '价格预测',
+                    'api_name': 'price_prediction',
                     'api_endpoint': 'POST /api/predict'
                 }
                 print("   ❌ 数据不足")
@@ -440,28 +440,28 @@ class FeatureDemo:
                         'close': pred.get('close', [])[:10],
                         'analysis': pred.get('analysis', ''),
                     },
-                    'api_name': '价格预测',
+                    'api_name': 'price_prediction',
                     'api_endpoint': 'POST /api/predict',
                     'formatted': f"预测变化: {pred.get('predicted_change', 0):.2%}, 置信度: {pred.get('confidence', 0):.2f}"
                 }
-                print(f"   ✅ 预测完成: {self.results['prediction']}")
+                print(f"   ✅ price_prediction completed: {self.results['prediction']}")
             else:
                 self.results['prediction'] = {
                     'success': False, 
-                    'error': pred.get('error', '预测失败'),
-                    'api_name': '价格预测',
+                    'error': pred.get('error', 'prediction failed'),
+                    'api_name': 'price_prediction',
                     'api_endpoint': 'POST /api/predict'
                 }
-                print(f"   ❌ 预测失败: {pred.get('error', '未知错误')}")
+                print(f"   ❌ price_prediction failed: {pred.get('error', 'Unknown error')}")
         except Exception as e:
             self.results['prediction'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': '价格预测',
+                'api_name': 'price_prediction',
                 'api_endpoint': 'POST /api/predict'
             }
-            print(f"   ❌ 失败: {e}")
-    
+            print(f"   ❌ price_prediction failed: {e}")
+
     async def _demo_recommendation(self, symbol: str):
         """演示投资建议"""
         try:
@@ -482,28 +482,28 @@ class FeatureDemo:
                         'stop_loss': advice.get('stop_loss'),
                         'generatedby': advice.get('generatedby', 'N/A'),
                     },
-                    'api_name': '投资建议',
+                    'api_name': 'investment_recommendation',
                     'api_endpoint': 'POST /api/recommend',
-                    'formatted': f"建议: {advice.get('signal', 'N/A')}, 评分: {advice.get('score', 0)}/8"
+                    'formatted': f"Recommendation: {advice.get('signal', 'N/A')}, Score: {advice.get('score', 0)}/8"
                 }
                 print(f"   ✅ _demo_recommendation: {self.results['recommendation']}")
             else:
                 self.results['recommendation'] = {
                     'success': False, 
-                    'error': result.get('error', '获取建议失败'),
-                    'api_name': '投资建议',
+                    'error': result.get('error', 'Failed to get recommendation'),
+                    'api_name': 'investment_recommendation',
                     'api_endpoint': 'POST /api/recommend'
                 }
-                print(f"   ❌ 获取建议失败: {result.get('error', '未知错误')}")
+                print(f"   ❌ Failed to get recommendation: {result.get('error', 'Unknown error')}")
         except Exception as e:
             self.results['recommendation'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': '投资建议',
+                'api_name': 'investment_recommendation',
                 'api_endpoint': 'POST /api/recommend'
             }
-            print(f"   ❌ 失败: {e}")
-    
+            print(f"   ❌ investment_recommendation failed: {e}")
+
     async def _demo_top_recommendations_v2(self):
         """演示 Top 推荐 (Skill-based)"""
         try:
@@ -542,17 +542,17 @@ class FeatureDemo:
                     'sell_details': self._format_buy_sell_hold(sell_list[:3]),
                     'hold_details': self._format_buy_sell_hold(hold_list[:3]),
                 }
-                print(f"   ✅ Top推荐完成: 分析 {summary.get('total_analyzed', 0)} 个ETF")
-                print(f"      📊 买入: {len(buy_list)}, 卖出: {len(sell_list)}, 持有: {len(hold_list)}")
-                print(f"      ⏱️  阶段1: {summary.get('stage1_time', 'N/A')}, 阶段2: {summary.get('stage2_time', 'N/A')}, 阶段3: {summary.get('stage3_time', 'N/A')}")
+                print(f"   ✅ Completed Top recommendations analysis:  {summary.get('total_analyzed', 0)} ETF")
+                print(f"      📊 Buy: {len(buy_list)}, Sell: {len(sell_list)}, Hold: {len(hold_list)}")
+                print(f"      ⏱️  Stage 1: {summary.get('stage1_time', 'N/A')}, Stage 2: {summary.get('stage2_time', 'N/A')}, Stage 3: {summary.get('stage3_time', 'N/A')}")
             else:
                 self.results['top_recommendations_v2'] = {
                     'success': False, 
-                    'error': result.get('error', '获取推荐失败'),
+                    'error': result.get('error', 'Failed to get recommendations'),
                     'api_name': self.api_endpoints.get('top_recommendations_v2', {}).get('name', 'Top推荐 (Skill-based)'),
                     'api_endpoint': 'GET /api/top-recommendations/v2'
                 }
-                print(f"   ❌ 获取Top推荐失败: {result.get('error', '未知错误')}")
+                print(f"   ❌ Failed to get Top recommendations: {result.get('error', 'Unknown error')}")
         except Exception as e:
             self.results['top_recommendations_v2'] = {
                 'success': False, 
@@ -560,12 +560,12 @@ class FeatureDemo:
                 'api_name': self.api_endpoints.get('top_recommendations_v2', {}).get('name', 'Top推荐 (Skill-based)'),
                 'api_endpoint': 'GET /api/top-recommendations/v2'
             }
-            print(f"   ❌ 失败: {e}")
+            print(f"   ❌ top_recommendations_v2 failed: {e}")
     
     def _format_buy_sell_hold(self, items: List[Dict]) -> str:
         """格式化买入/卖出/持有列表"""
         if not items:
-            return "无数据"
+            return "No data"
         lines = []
         for item in items[:3]:
             symbol = item.get('symbol', 'N/A')
@@ -576,8 +576,8 @@ class FeatureDemo:
             stop_loss = item.get('stop_loss', 0)
             analysis = item.get('analysis', '')[:100]
             lines.append(
-                f"{symbol}: 评分 {score}, 信号 {signal}, "
-                f"风险 {risk}, 目标 {target:.3f}, 止损 {stop_loss:.3f}"
+                f"{symbol}: Score {score}, Signal {signal}, "
+                f"Risk {risk}, Target {target:.3f}, Stop Loss {stop_loss:.3f}"
             )
             if analysis:
                 lines.append(f"  {analysis}")
@@ -601,28 +601,28 @@ class FeatureDemo:
                         'count': len(results),
                         'api_name': self.api_endpoints.get('rag_search', {}).get('name', 'RAG 知识检索'),
                         'api_endpoint': f'POST /api/rag/search (query: "{query}")',
-                        'formatted': f"查询: {query}, 找到 {len(results)} 条结果"
+                        'formatted': f"Query: {query}, Found {len(results)} results"
                     }
-                    print(f"   ✅ RAG 搜索: {query} ({len(results)} 条\n{results})")
+                    print(f"   ✅ RAG Search: {query} ({len(results)} results\n{results})")
                 else:
                     self.results[key] = {
                         'success': False, 
-                        'error': result.get('error', '搜索失败'), 
+                        'error': result.get('error', 'Search failed'), 
                         'query': query,
-                        'api_name': self.api_endpoints.get('rag_search', {}).get('name', 'RAG 知识检索'),
+                        'api_name': self.api_endpoints.get('rag_search', {}).get('name', 'RAG Knowledge Search'),
                         'api_endpoint': f'POST /api/rag/search'
                     }
-                    print(f"   ❌ RAG 搜索失败: {query} - {result.get('error', '未知错误')}")
+                    print(f"   ❌ RAG Search failed: {query} - {result.get('error', 'Unknown error')}")
             except Exception as e:
                 key = f"rag_search_{query[:10].replace(' ', '_')}"
                 self.results[key] = {
                     'success': False, 
                     'error': str(e), 
                     'query': query,
-                    'api_name': self.api_endpoints.get('rag_search', {}).get('name', 'RAG 知识检索'),
+                    'api_name': self.api_endpoints.get('rag_search', {}).get('name', 'RAG Knowledge Search'),
                     'api_endpoint': f'POST /api/rag/search'
                 }
-                print(f"   ❌ RAG 搜索失败: {query} - {e}")
+                print(f"   ❌ RAG Search failed: {query} - {e}")
         
         # RAG 统计
         try:
@@ -630,19 +630,19 @@ class FeatureDemo:
             self.results['rag_stats'] = {
                 'success': True,
                 'result': stats,
-                'api_name': self.api_endpoints.get('rag_stats', {}).get('name', 'RAG 统计信息'),
+                'api_name': self.api_endpoints.get('rag_stats', {}).get('name', 'RAG Statistics'),
                 'api_endpoint': 'GET /api/rag/stats',
-                'formatted': f"知识库: {stats.get('knowledge', {}).get('row_count', 0)} 条, 模式: {stats.get('mode', 'N/A')}"
+                'formatted': f"Knowledge Base: {stats.get('knowledge', {}).get('row_count', 0)} entries, Mode: {stats.get('mode', 'N/A')}"
             }
-            print(f"   ✅ RAG 统计: 知识库 {stats.get('knowledge', {}).get('row_count', 0)} 条")
+            print(f"   ✅ RAG Statistics: Knowledge Base has {stats.get('knowledge', {}).get('row_count', 0)} entries")
         except Exception as e:
             self.results['rag_stats'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': self.api_endpoints.get('rag_stats', {}).get('name', 'RAG 统计信息'),
+                'api_name': self.api_endpoints.get('rag_stats', {}).get('name', 'RAG Statistics'),
                 'api_endpoint': 'GET /api/rag/stats'
             }
-            print(f"   ❌ RAG 统计失败: {e}")
+            print(f"   ❌ RAG Statistics failed: {e}")
     
     async def _demo_llm_chat(self, symbol: str):
         """演示 LLM 对话"""
@@ -654,8 +654,8 @@ class FeatureDemo:
             
             quote = self.fetcher.get_history(symbol) # get_etf_quote(symbol)
             if len(quote)>0:
-                context = f"{symbol} 当前价格: {quote['price']:.3f}, 涨跌幅: {quote['change']:+.2f}%"
-                messages[1]["content"] = f"{context}\n请给出简要分析和建议。"
+                context = f"{symbol} Current Price: {quote['price']:.3f}, Change: {quote['change']:+.2f}%"
+                messages[1]["content"] = f"{context}\nPlease provide a brief analysis and recommendation."
             
             response = self.llm.generate_response(
                 messages=messages,
@@ -667,22 +667,22 @@ class FeatureDemo:
                 'success': True,
                 'result': response[:500] + "..." if len(response) > 500 else response,
                 'full_response': response,
-                'api_name': self.api_endpoints.get('llm_chat', {}).get('name', 'LLM 对话'),
+                'api_name': self.api_endpoints.get('llm_chat', {}).get('name', 'LLM Chat'),
                 'api_endpoint': 'POST /api/llm/chat',
-                'formatted': f"回复: {response[:100]}..."
+                'formatted': f"Response: {response[:100]}..."
             }
-            print(f"   ✅ LLM 对话完成: {len(response)} 字符\nmessages:{messages[1]['content']}\n回复: {response[:100]}...")
+            print(f"   ✅ LLM Chat completed: {len(response)} characters\nmessages:{messages[1]['content']}\nResponse: {response[:100]}...")
         except Exception as e:
             self.results['llm_chat'] = {
                 'success': False, 
                 'error': str(e),
-                'api_name': self.api_endpoints.get('llm_chat', {}).get('name', 'LLM 对话'),
+                'api_name': self.api_endpoints.get('llm_chat', {}).get('name', 'LLM Chat'),
                 'api_endpoint': 'POST /api/llm/chat'
             }
-            print(f"   ❌ LLM 对话失败: {e}")
+            print(f"   ❌ LLM Chat failed: {e}")
     
     async def _demo_agent_chat(self, symbol: str):
-        """演示 Agent 聊天"""
+        """演示 Agent Chat"""
         queries = [
             f"分析{symbol}的当前趋势",
             f"请给出{symbol}的投资建议"
@@ -699,21 +699,21 @@ class FeatureDemo:
                     'result': result.get('response', '')[:500] + "..." if len(result.get('response', '')) > 500 else result.get('response', ''),
                     'full_response': result.get('response', ''),
                     'intent': result.get('intent'),
-                    'api_name': self.api_endpoints.get('agent_chat', {}).get('name', 'Agent 智能聊天'),
+                    'api_name': self.api_endpoints.get('agent_chat', {}).get('name', 'Agent Chat'),
                     'api_endpoint': f'POST /api/chat (message: "{query[:30]}...")',
-                    'formatted': f"意图: {result.get('intent', 'N/A')}"
+                    'formatted': f"intent: {result.get('intent', 'N/A')}"
                 }
-                print(f"   ✅ Agent 聊天: {query[:30]}...")
+                print(f"   ✅ Agent Chat: {query[:30]}...")
             except Exception as e:
                 key = f"agent_chat_{i+1}"
                 self.results[key] = {
                     'success': False, 
                     'error': str(e), 
                     'query': query,
-                    'api_name': self.api_endpoints.get('agent_chat', {}).get('name', 'Agent 智能聊天'),
+                    'api_name': self.api_endpoints.get('agent_chat', {}).get('name', 'Agent Chat'),
                     'api_endpoint': 'POST /api/chat'
                 }
-                print(f"   ❌ Agent 聊天失败: {query[:30]}... - {e}")
+                print(f"   ❌ Agent Chat failed: {query[:30]}... - {e}")
     
     async def _demo_curl_calls(self, symbol: str):
         """演示 curl 调用"""
@@ -765,7 +765,7 @@ class FeatureDemo:
             }
             print(f'{self.results[f"curl_{key}"]["formatted"]}')
         
-        print("   ✅ curl 调用测试完成")
+        print("   ✅ curl call test completed\n")
     
     # ============================================================
     # 工具方法
@@ -811,14 +811,14 @@ class FeatureDemo:
     def _format_curl_result(self, result: Dict) -> str:
         """格式化 curl 结果"""
         if not result:
-            return "无响应"
+            return "No response"
         if result.get('success'):
             data = result.get('result', {})
             if isinstance(data, dict):
                 return json.dumps(data, ensure_ascii=False, indent=2)[:500]
             return str(data)[:500]
         else:
-            return f"❌ 错误: {result.get('error', '未知错误')}"
+            return f"❌ Error: {result.get('error', 'Unknown error')}"
     
     def generate_html_report(self) -> str:
         """生成 HTML 报告"""
@@ -831,16 +831,16 @@ class FeatureDemo:
         
         # 功能分类
         categories = {
-            '系统状态': ['system_status'],
+            'System Status': ['system_status'],
             # '数据获取': ['get_quote', 'get_etf_list'],
-            '技术分析': ['technical_analysis'],
-            '价格预测': ['prediction'],
-            '投资建议': ['recommendation'],
-            'Top推荐 (Skill-based)': ['top_recommendations_v2'],
-            'RAG知识库': [k for k in self.results.keys() if k.startswith('rag_search_')] + ['rag_stats'],
-            'LLM对话': ['llm_chat'],
-            'Agent聊天': [k for k in self.results.keys() if k.startswith('agent_chat_')],
-            'curl 调用': [k for k in self.results.keys() if k.startswith('curl_')],
+            'Technical Analysis': ['technical_analysis'],
+            'Price Prediction': ['prediction'],
+            'Investment Recommendation': ['recommendation'],
+            'Top Recommendations (Skill-based)': ['top_recommendations_v2'],
+            'RAG Knowledge Base': [k for k in self.results.keys() if k.startswith('rag_search_')] + ['rag_stats'],
+            'LLM_chat': ['llm_chat'],
+            'Agent Chat': [k for k in self.results.keys() if k.startswith('agent_chat_')],
+            'curl call': [k for k in self.results.keys() if k.startswith('curl_')],
         }
         
         # 构建 curl 命令列表
@@ -848,8 +848,8 @@ class FeatureDemo:
         if self.curl_commands:
             curl_section = """
         <div class="curl-section">
-            <h3>📡 curl 命令示例</h3>
-            <p class="curl-note">以下命令可直接复制到终端执行，用于测试 API</p>
+            <h3>📡 curl call Examples</h3>
+            <p class="curl-note">The following commands can be copied directly to the terminal for API testing</p>
             <div class="curl-grid">
 """
             for cmd in self.curl_commands:
@@ -863,7 +863,7 @@ class FeatureDemo:
                     <div class="curl-method">{cmd['method']} {cmd['endpoint']}</div>
                     <pre class="curl-command">{cmd['command']}</pre>
                     <div class="curl-response">
-                        <span class="resp-label">响应:</span>
+                        <span class="resp-label">Response:</span>
                         <pre>{self._escape_html(self._format_curl_result(cmd.get('result')))}</pre>
                     </div>
                 </div>
@@ -878,7 +878,7 @@ class FeatureDemo:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ETF-Smart Advisor 功能演示报告</title>
+    <title>ETF-Smart Advisor Features Demo Report</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -1247,10 +1247,10 @@ class FeatureDemo:
     <div class="container">
         <div class="header">
             <h1>🚀 ETF-Smart Advisor</h1>
-            <div class="subtitle">完整功能演示报告</div>
+            <div class="subtitle">Completed feature demo report</div>
             <div class="meta">
                 生成时间: {self.start_time.strftime('%Y-%m-%d %H:%M:%S')} | 
-                耗时: {duration:.2f} 秒 |
+                耗时: {duration:.2f} s |
                 API: {self.base_url}
             </div>
         </div>
@@ -1258,27 +1258,27 @@ class FeatureDemo:
         <div class="stats">
             <div class="stat-card total">
                 <div class="number">{total_tests}</div>
-                <div class="label">🧪 总测试数</div>
+                <div class="label">🧪 Total Tests</div>
             </div>
             <div class="stat-card success">
                 <div class="number">{success_count}</div>
-                <div class="label">✅ 成功</div>
+                <div class="label">✅ Success</div>
             </div>
             <div class="stat-card fail">
                 <div class="number">{fail_count}</div>
-                <div class="label">❌ 失败</div>
+                <div class="label">❌ Fail</div>
             </div>
             <div class="stat-card duration">
                 <div class="number">{duration:.1f}s</div>
-                <div class="label">⏱️ 总耗时</div>
+                <div class="label">⏱️ Total Duration</div>
             </div>
             <div class="stat-card curl">
                 <div class="number">{len(self.curl_commands)}</div>
-                <div class="label">📡 curl 命令</div>
+                <div class="label">📡 curl Commands</div>
             </div>
             <div class="stat-card api">
                 <div class="number">{len(self.api_endpoints)}</div>
-                <div class="label">🔌 API 端点</div>
+                <div class="label">🔌 API Endpoints</div>
             </div>
         </div>
 """
@@ -1306,7 +1306,7 @@ class FeatureDemo:
                 api_name = result.get('api_name', key.replace('_', ' ').title())
                 api_endpoint = result.get('api_endpoint', 'N/A')
                 
-                status_text = "✅ 成功" if success else f"❌ 失败: {error}"
+                status_text = "✅ Success" if success else f"❌ Fail: {error}"
                 badge_class = "success" if success else "fail"
                 status_class = "success" if success else "fail"
                 
@@ -1323,10 +1323,10 @@ class FeatureDemo:
                     <span class="api-name">🔌 API:</span>
                     <span class="api-endpoint">{api_endpoint}</span>
                     <span>|</span>
-                    <span class="api-status {status_class}">{'✅ 调用成功' if success else '❌ 调用失败'}</span>
+                    <span class="api-status {status_class}">{'✅ Call Successful' if success else '❌ Call Failed'}</span>
 """
                 if query:
-                    html += f'                    <span>| 📝 查询: {query}</span>'
+                    html += f'                    <span>| 📝 Query: {query}</span>'
                 html += """
                 </div>
 """
@@ -1341,21 +1341,21 @@ class FeatureDemo:
                 <div class="recommendation-grid">
                     <div class="rec-card">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-weight:700; color:#276749;">🟢 买入推荐</span>
+                            <span style="font-weight:700; color:#276749;">🟢 Buy Recommendations</span>
                             <span style="font-size:12px; color:#6b7a8f;">Top 3</span>
                         </div>
                         <div style="margin-top:6px; font-size:13px; white-space:pre-wrap;">""" + self._escape_html(buy_details) + """</div>
                     </div>
                     <div class="rec-card">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-weight:700; color:#9b2c2c;">🔴 卖出推荐</span>
+                            <span style="font-weight:700; color:#9b2c2c;">🔴 Sell Recommendations</span>
                             <span style="font-size:12px; color:#6b7a8f;">Top 3</span>
                         </div>
                         <div style="margin-top:6px; font-size:13px; white-space:pre-wrap;">""" + self._escape_html(sell_details) + """</div>
                     </div>
                     <div class="rec-card">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-weight:700; color:#975a16;">🟡 持有推荐</span>
+                            <span style="font-weight:700; color:#975a16;">🟡 Hold Recommendations</span>
                             <span style="font-size:12px; color:#6b7a8f;">Top 3</span>
                         </div>
                         <div style="margin-top:6px; font-size:13px; white-space:pre-wrap;">""" + self._escape_html(hold_details) + """</div>
@@ -1390,7 +1390,7 @@ class FeatureDemo:
         if self.errors:
             html += """
         <div class="error-list">
-            <h4>❌ 错误列表</h4>
+            <h4>❌ Error List</h4>
             <ul>
 """
             for err in self.errors:
@@ -1405,50 +1405,50 @@ class FeatureDemo:
             <h3>📊 测试总结</h3>
             <div class="summary-grid">
                 <div class="summary-item">
-                    <span class="key">总测试数</span>
+                    <span class="key">Total Tests</span>
                     <span class="value">{total_tests}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="key">✅ 成功</span>
+                    <span class="key">✅ Success</span>
                     <span class="value" style="color: #38a169;">{success_count}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="key">❌ 失败</span>
+                    <span class="key">❌ Fail</span>
                     <span class="value" style="color: #e53e3e;">{fail_count}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="key">📈 成功率</span>
+                    <span class="key">📈 Success Rate</span>
                     <span class="value">{success_count/total_tests*100:.1f}%</span>
                 </div>
                 <div class="summary-item">
-                    <span class="key">📡 curl 命令</span>
+                    <span class="key">📡 curl Commands</span>
                     <span class="value">{len(self.curl_commands)} 个</span>
                 </div>
                 <div class="summary-item">
-                    <span class="key">🔌 API 端点</span>
+                    <span class="key">🔌 API endpoints</span>
                     <span class="value">{len(self.api_endpoints)} 个</span>
                 </div>
                 <div class="summary-item">
-                    <span class="key">⏱️ 总耗时</span>
-                    <span class="value">{duration:.2f} 秒</span>
+                    <span class="key">⏱️ Total Duration</span>
+                    <span class="value">{duration:.2f} seconds</span>
                 </div>
                 <div class="summary-item">
-                    <span class="key">📂 报告生成</span>
+                    <span class="key">📂 Report Generation</span>
                     <span class="value">{self.start_time.strftime('%Y-%m-%d %H:%M:%S')}</span>
                 </div>
             </div>
         </div>
         
         <div class="footer">
-            <p>ETF-Smart Advisor &copy; 2026 | 基于 AMD ROCm 的智能投顾系统</p>
+            <p>ETF-Smart Advisor &copy; 2026 | Smart Investment Advisor based on AMD ROCm</p>
             <p style="font-size: 12px; margin-top: 4px;">
-                报告自动生成于 {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}
+                Report generated automatically at {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}
             </p>
             <p style="font-size: 12px; margin-top: 4px;">
-                📡 API 地址: {self.base_url} | 🔑 API Key: {self.api_key}
+                📡 API URL: {self.base_url} | 🔑 API Key: {self.api_key}
             </p>
             <p style="font-size: 12px; margin-top: 4px;">
-                📋 测试了 {len(self.api_endpoints)} 个 API 端点，共 {total_tests} 个测试用例
+                📋 Tested {len(self.api_endpoints)} API endpoints, total of {total_tests} test cases
             </p>
         </div>
     </div>
@@ -1466,13 +1466,13 @@ class FeatureDemo:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
         
-        print(f"\n📄 HTML 报告已保存: {output_path}")
+        print(f"\n📄 HTML report is saved to: {output_path}")
         return output_path
 
 
 def main():
     """主函数"""
-    parser = argparse.ArgumentParser(description="ETF-Smart Advisor 功能演示")
+    parser = argparse.ArgumentParser(description="ETF-Smart Advisor Features Demo")
     parser.add_argument(
         "--with-curl",
         action="store_true",
