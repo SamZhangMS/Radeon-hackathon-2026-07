@@ -1,6 +1,6 @@
 # app/privacy/privacy_manager.py
 """
-隐私保护与权限控制
+Privacy Protection and Permission Control
 """
 
 import re
@@ -25,10 +25,10 @@ class PrivacyManager:
         self.audit_log_path = DATA_DIR / "audit_log.json"
         self._load_audit_log()
         
-        print(f"🔒 隐私保护已启用")
-        print(f"   📅 数据保留: {self.retention_days} 天")
-        print(f"   🎭 数据脱敏: {'启用' if self.anonymize else '禁用'}")
-        print(f"   🏠 本地存储: {'启用' if self.local_only else '禁用'}")
+        print(f"🔒 Privacy protection is enabled")
+        print(f"   📅 Data retention: {self.retention_days} days")
+        print(f"   🎭 Data anonymization: {'Enabled' if self.anonymize else 'Disabled'}")
+        print(f"   🏠 Local storage: {'Enabled' if self.local_only else 'Disabled'}")
     
     def _load_audit_log(self):
         """加载审计日志"""
