@@ -23,6 +23,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import traceback
+import pandas as pd
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
@@ -37,7 +38,7 @@ from app.advisor import InvestmentAdvisor
 from app.predictor import ETFPricePredictor
 from app.feedback_learning import FeedbackLearning
 from app.privacy.privacy_manager import PrivacyManager
-
+from app.utils import format_exception
 
 class FeatureDemo:
     """功能演示运行器"""
@@ -644,6 +645,32 @@ class FeatureDemo:
             }
             print(f"   ❌ RAG Statistics failed: {e}")
     
+    
+    def convert_etf_data(self,   df, days: int = 90) -> Dict:
+        """将ETF数据转换为CSV字符串格式"""
+        csv_string=''
+        try:
+            if df is None or df.empty:
+                return ''
+            
+            # 数据预处理
+            # df['date'] = pd.to_datetime(df['date'])
+            df.loc[:, 'date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date')
+            df = df.ffill().bfill()
+            df = df.tail(days)
+            
+            # ✅ 转换为CSV字符串(省Token)
+            csv_string = df[['open', 'high', 'low', 'close', 'volume','amount']].round(4).to_csv(
+                header=False, 
+                float_format='%.4f',
+                date_format='%Y-%m-%d'
+            )
+
+        except Exception as e:
+            print(f"❌ 转换数据失败: {e}\nTrackback:{format_exception(e)}")
+        
+        return csv_string
     async def _demo_llm_chat(self, symbol: str):
         """演示 LLM 对话"""
         try:
@@ -654,7 +681,8 @@ class FeatureDemo:
             
             quote = self.fetcher.get_history(symbol) # get_etf_quote(symbol)
             if len(quote)>0:
-                context = f"{symbol} Current Price: {quote['price']:.3f}, Change: {quote['change']:+.2f}%"
+                csv_string = self.convert_etf_data(quote)
+                context = f"{symbol},recent data:\n{csv_string}"
                 messages[1]["content"] = f"{context}\nPlease provide a brief analysis and recommendation."
             
             response = self.llm.generate_response(
@@ -679,7 +707,7 @@ class FeatureDemo:
                 'api_name': self.api_endpoints.get('llm_chat', {}).get('name', 'LLM Chat'),
                 'api_endpoint': 'POST /api/llm/chat'
             }
-            print(f"   ❌ LLM Chat failed: {e}")
+            print(f"   ❌ LLM Chat failed: {e}\nTrackback:{format_exception(e)}")
     
     async def _demo_agent_chat(self, symbol: str):
         """演示 Agent Chat"""
